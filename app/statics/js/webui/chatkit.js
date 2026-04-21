@@ -3,6 +3,7 @@
   const voiceSelect = document.getElementById('voiceSelect');
   const personalitySelect = document.getElementById('personalitySelect');
   const speedSelect = document.getElementById('speedSelect');
+  const instructionInput = document.getElementById('instructionInput');
   const startVoiceBtn = document.getElementById('startVoiceBtn');
   const muteVoiceBtn = document.getElementById('muteVoiceBtn');
   const newSessionBtn = document.getElementById('newSessionBtn');
@@ -20,6 +21,10 @@
   let orbLevel = 0;
   let orbBeat = 0;
   let orbMotionPhase = 0;
+  const audioElements = new Set();
+  let lastStatusState = '';
+  let lastStatusLabel = '';
+  let lastStatusDescription = '';
 
   const controlIcon = {
     start: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7.25 17 12l-8 4.75V7.25Z" fill="currentColor" stroke="none"/></svg>',
@@ -206,12 +211,17 @@
   };
 
   const setStatus = (state, label, description) => {
-    if (connectionBadge) connectionBadge.textContent = label;
-    if (connectionBadge) connectionBadge.dataset.state = state;
-    if (connectionText) connectionText.textContent = description;
+    if (connectionBadge && lastStatusLabel !== label) connectionBadge.textContent = label;
+    if (connectionBadge && lastStatusState !== state) connectionBadge.dataset.state = state;
+    if (connectionText && lastStatusDescription !== description) connectionText.textContent = description;
+    lastStatusState = state;
+    lastStatusLabel = label;
+    lastStatusDescription = description;
     if (voiceOrb) {
-      voiceOrb.classList.remove('is-idle', 'is-connecting', 'is-live', 'is-paused', 'is-output-muted', 'is-error');
-      voiceOrb.classList.add(state);
+      if (!voiceOrb.classList.contains(state)) {
+        voiceOrb.classList.remove('is-idle', 'is-connecting', 'is-live', 'is-paused', 'is-output-muted', 'is-error');
+        voiceOrb.classList.add(state);
+      }
       if (state !== 'is-live') {
         voiceOrb.classList.remove('is-speaking');
         setOrbLevel(0);
@@ -285,14 +295,14 @@
 
   const detachAudio = () => {
     stopOrbAnalysis();
-    if (!audioRoot) return;
-    audioRoot.querySelectorAll('audio').forEach((node) => {
+    audioElements.forEach((node) => {
       try {
         node.pause();
         node.srcObject = null;
       } catch {}
       node.remove();
     });
+    audioElements.clear();
   };
 
   const getLiveKit = () => window.LiveKitClient || window.LivekitClient || null;
@@ -309,6 +319,7 @@
     element.playsInline = true;
     element.muted = outputMuted;
     audioRoot.appendChild(element);
+    audioElements.add(element);
     const stream = element.srcObject instanceof MediaStream ? element.srcObject : null;
     const streamId = stream?.id || stream?.getAudioTracks?.()[0]?.id || '';
     if (stream && streamId) {
@@ -330,6 +341,7 @@
             streamId = el.srcObject.id || el.srcObject.getAudioTracks?.()[0]?.id || '';
           }
           if (streamId) removeOrbInput(`remote:${streamId}`);
+          if (el instanceof HTMLAudioElement) audioElements.delete(el);
           el.remove();
         });
       } catch {}
@@ -372,14 +384,18 @@
     );
 
     try {
-      const params = new URLSearchParams({
-        voice: voiceSelect?.value || 'ara',
-        personality: personalitySelect?.value || 'assistant',
-        speed: speedSelect?.value || '1.0',
-      });
-      const res = await fetch(`${VOICE_ENDPOINT}?${params.toString()}`, {
-        headers: await getAuthHeaders(),
+      const headers = await getAuthHeaders();
+      headers['Content-Type'] = 'application/json';
+      const res = await fetch(VOICE_ENDPOINT, {
+        method: 'POST',
+        headers,
         cache: 'no-store',
+        body: JSON.stringify({
+          voice: voiceSelect?.value || 'ara',
+          personality: personalitySelect?.value || 'assistant',
+          speed: Number(speedSelect?.value || 1),
+          instruction: instructionInput?.value?.trim() || '',
+        }),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
@@ -437,11 +453,9 @@
   const toggleOutputMute = () => {
     if (!room) return;
     outputMuted = !outputMuted;
-    if (audioRoot) {
-      audioRoot.querySelectorAll('audio').forEach((node) => {
-        node.muted = outputMuted;
-      });
-    }
+    audioElements.forEach((node) => {
+      node.muted = outputMuted;
+    });
     setButtons(true);
     renderConnectedStatus();
   };

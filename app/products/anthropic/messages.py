@@ -19,6 +19,7 @@ from app.platform.config.snapshot import get_config
 from app.platform.errors import RateLimitError, UpstreamError
 from app.platform.runtime.clock import now_s
 from app.platform.tokens import estimate_prompt_tokens, estimate_tokens, estimate_tool_call_tokens
+from app.control.model.enums import ModeId
 from app.control.model.registry import resolve as resolve_model
 from app.control.account.enums import FeedbackKind
 from app.dataplane.reverse.protocol.xai_chat import classify_line, StreamAdapter
@@ -30,7 +31,9 @@ from app.dataplane.reverse.protocol.tool_parser import parse_tool_calls
 from app.products.openai.chat import (
     _stream_chat, _extract_message, _resolve_image,
     _quota_sync, _fail_sync, _parse_retry_codes, _feedback_kind, _log_task_exception,
+    _configured_retry_codes, _should_retry_upstream,
 )
+from app.products._account_selection import reserve_account, selection_max_retries
 from app.products.openai._tool_sieve import ToolSieve
 
 
@@ -307,8 +310,8 @@ async def create(
         raise RateLimitError("Account directory not initialised")
     directory = _acct_dir
 
-    max_retries = cfg.get_int("retry.max_retries", 1)
-    retry_codes = _parse_retry_codes(cfg.get_str("retry.on_codes", "429,503"))
+    max_retries = selection_max_retries()
+    retry_codes = _configured_retry_codes(cfg)
     timeout_s   = cfg.get_float("chat.timeout", 120.0)
     msg_id      = _make_msg_id()
 
@@ -318,11 +321,11 @@ async def create(
     async def _run_stream() -> AsyncGenerator[str, None]:
         excluded: list[str] = []
         for attempt in range(max_retries + 1):
-            acct = await directory.reserve(
-                pool_candidates = spec.pool_candidates(),
-                mode_id         = mode_id,
-                now_s_override  = now_s(),
-                exclude_tokens  = excluded or None,
+            acct, selected_mode_id = await reserve_account(
+                directory,
+                spec,
+                now_s_override=now_s(),
+                exclude_tokens=excluded or None,
             )
             if acct is None:
                 raise RateLimitError("No available accounts for this model tier")
@@ -341,6 +344,7 @@ async def create(
             tool_calls_emitted    = False
             tool_output_tokens    = 0
             block_index           = 0  # tracks next content_block index
+            collected_annotations: list[dict] = []
 
             try:
                 try:
@@ -362,7 +366,7 @@ async def create(
                     ended = False
                     async for line in _stream_chat(
                         token     = token,
-                        mode_id   = spec.mode_id,
+                        mode_id   = ModeId(selected_mode_id),
                         message   = internal_message,
                         files     = files,
                         timeout_s = timeout_s,
@@ -455,6 +459,9 @@ async def create(
                                         "delta": {"type": "text_delta", "text": text_chunk},
                                     })
 
+                            elif ev.kind == "annotation" and ev.annotation_data:
+                                collected_annotations.append(ev.annotation_data)
+
                             elif ev.kind == "soft_stop":
                                 ended = True
                                 break
@@ -502,9 +509,14 @@ async def create(
                             tool_calls_emitted = True
 
                     if tool_calls_emitted:
+                        # 构建 tool_use 的 message_delta，注入搜索信源
+                        tool_delta: dict = {"stop_reason": "tool_use", "stop_sequence": None}
+                        sources = adapter.search_sources_list()
+                        if sources:
+                            tool_delta["search_sources"] = sources
                         yield _sse("message_delta", {
                             "type":  "message_delta",
-                            "delta": {"stop_reason": "tool_use", "stop_sequence": None},
+                            "delta": tool_delta,
                             "usage": {"output_tokens": tool_output_tokens},
                         })
                         yield _sse("message_stop", {"type": "message_stop"})
@@ -556,9 +568,16 @@ async def create(
                         if full_think:
                             out_tokens += estimate_tokens(full_think)
 
+                        # 构建 message_delta，注入结构化搜索信源和 annotations
+                        msg_delta: dict = {"stop_reason": "end_turn", "stop_sequence": None}
+                        sources = adapter.search_sources_list()
+                        if sources:
+                            msg_delta["search_sources"] = sources
+                        if collected_annotations:
+                            msg_delta["annotations"] = collected_annotations
                         yield _sse("message_delta", {
                             "type":  "message_delta",
-                            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                            "delta": msg_delta,
                             "usage": {"output_tokens": out_tokens},
                         })
                         yield _sse("message_stop", {"type": "message_stop"})
@@ -572,7 +591,7 @@ async def create(
 
                 except UpstreamError as exc:
                     fail_exc = exc
-                    if exc.status in retry_codes and attempt < max_retries:
+                    if _should_retry_upstream(exc, retry_codes) and attempt < max_retries:
                         _retry = True
                         logger.warning(
                             "messages stream retry: attempt={}/{} status={} token={}...",
@@ -588,11 +607,11 @@ async def create(
                     else _feedback_kind(fail_exc) if fail_exc
                     else FeedbackKind.SERVER_ERROR
                 )
-                await directory.feedback(token, kind, mode_id, now_s_val=now_s())
+                await directory.feedback(token, kind, selected_mode_id, now_s_val=now_s())
                 if success:
-                    asyncio.create_task(_quota_sync(token, mode_id)).add_done_callback(_log_task_exception)
+                    asyncio.create_task(_quota_sync(token, selected_mode_id)).add_done_callback(_log_task_exception)
                 else:
-                    asyncio.create_task(_fail_sync(token, mode_id, fail_exc)).add_done_callback(_log_task_exception)
+                    asyncio.create_task(_fail_sync(token, selected_mode_id, fail_exc)).add_done_callback(_log_task_exception)
 
             if success or not _retry:
                 return
@@ -609,11 +628,11 @@ async def create(
     adapter  = StreamAdapter()
 
     for attempt in range(max_retries + 1):
-        acct = await directory.reserve(
-            pool_candidates = spec.pool_candidates(),
-            mode_id         = mode_id,
-            now_s_override  = now_s(),
-            exclude_tokens  = excluded or None,
+        acct, selected_mode_id = await reserve_account(
+            directory,
+            spec,
+            now_s_override=now_s(),
+            exclude_tokens=excluded or None,
         )
         if acct is None:
             raise RateLimitError("No available accounts for this model tier")
@@ -629,7 +648,7 @@ async def create(
                 ended = False
                 async for line in _stream_chat(
                     token     = token,
-                    mode_id   = spec.mode_id,
+                    mode_id   = ModeId(selected_mode_id),
                     message   = internal_message,
                     files     = files,
                     timeout_s = timeout_s,
@@ -649,7 +668,7 @@ async def create(
 
             except UpstreamError as exc:
                 fail_exc = exc
-                if exc.status in retry_codes and attempt < max_retries:
+                if _should_retry_upstream(exc, retry_codes) and attempt < max_retries:
                     _retry = True
                     logger.warning(
                         "messages retry: attempt={}/{} status={} token={}...",
@@ -665,11 +684,11 @@ async def create(
                 else _feedback_kind(fail_exc) if fail_exc
                 else FeedbackKind.SERVER_ERROR
             )
-            await directory.feedback(token, kind, mode_id, now_s_val=now_s())
+            await directory.feedback(token, kind, selected_mode_id, now_s_val=now_s())
             if success:
-                asyncio.create_task(_quota_sync(token, mode_id)).add_done_callback(_log_task_exception)
+                asyncio.create_task(_quota_sync(token, selected_mode_id)).add_done_callback(_log_task_exception)
             else:
-                asyncio.create_task(_fail_sync(token, mode_id, fail_exc)).add_done_callback(_log_task_exception)
+                asyncio.create_task(_fail_sync(token, selected_mode_id, fail_exc)).add_done_callback(_log_task_exception)
 
         if success or not _retry:
             break
@@ -718,7 +737,12 @@ async def create(
                 })
             ct = estimate_tool_call_tokens(tc_result.calls)
             logger.info("messages tool_calls: model={} calls={}", model, len(tc_result.calls))
-            return _build_message_response(msg_id, model, content, "tool_use", in_tokens, ct)
+            resp = _build_message_response(msg_id, model, content, "tool_use", in_tokens, ct)
+            # 注入结构化搜索信源（tool_use 场景）
+            sources = adapter.search_sources_list()
+            if sources:
+                resp["search_sources"] = sources
+            return resp
 
     logger.info(
         "messages request completed: model={} text_len={} think_len={} images={}",
@@ -726,7 +750,14 @@ async def create(
     )
 
     content = [{"type": "text", "text": full_text}]
-    return _build_message_response(msg_id, model, content, "end_turn", in_tokens, out_tokens)
+    anns = adapter.annotations_list()
+    if anns:
+        content[0]["annotations"] = anns
+    resp = _build_message_response(msg_id, model, content, "end_turn", in_tokens, out_tokens)
+    sources = adapter.search_sources_list()
+    if sources:
+        resp["search_sources"] = sources
+    return resp
 
 
 __all__ = ["create"]

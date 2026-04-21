@@ -111,6 +111,67 @@
       line-height:1.35;
     }
     .cfg-desc  { max-width:520px; font-size:11px; color:#9a9a9a; line-height:1.45 }
+    .cfg-help {
+      position:relative;
+      width:16px;
+      height:16px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:0;
+      border-radius:50%;
+      border:1px solid #e6e6e6;
+      background:#fafafa;
+      color:#8d8d8d;
+      font-size:11px;
+      line-height:1;
+      font-weight:700;
+      cursor:help;
+      flex-shrink:0;
+    }
+    .cfg-help:hover,
+    .cfg-help:focus-visible {
+      color:#222;
+      border-color:#d6d6d6;
+      background:#fff;
+      outline:none;
+    }
+    .cfg-help-tip {
+      position:fixed;
+      box-sizing:border-box;
+      max-width:min(320px, calc(100vw - 24px));
+      padding:9px 10px;
+      border-radius:8px;
+      background:#171717;
+      color:#fff;
+      font-size:12px;
+      font-weight:500;
+      line-height:1.5;
+      text-align:left;
+      white-space:pre-line;
+      overflow-wrap:anywhere;
+      box-shadow:0 8px 24px rgba(0,0,0,.16);
+      opacity:0;
+      pointer-events:none;
+      transform:translateY(3px);
+      transition:opacity .15s, transform .15s;
+      z-index:1000;
+    }
+    .cfg-help-tip.visible {
+      opacity:1;
+      transform:translateY(0);
+    }
+    .cfg-help-tip::before {
+      content:'';
+      position:absolute;
+      left:var(--arrow-left, 50%);
+      width:8px;
+      height:8px;
+      background:#171717;
+      transform:translateX(-50%) rotate(45deg);
+    }
+    .cfg-help-tip[data-placement="top"]::before { bottom:-4px }
+    .cfg-help-tip[data-placement="bottom"]::before { top:-4px }
     .cfg-input-col { min-width:0; display:flex; align-items:center; justify-content:flex-start; gap:8px }
     .cfg-input-col.is-bool { justify-content:flex-end }
     .cfg-inline-action {
@@ -341,6 +402,34 @@ const SCHEMA_DEF = [
           { key: 'webui_key', label: 'WebUI 访问密码', labelKey: 'config.schema.fields.webuiKey.label', type: 'password', desc: 'WebUI 的访问鉴权密码。配置后访问时必须提供。', descKey: 'config.schema.fields.webuiKey.desc', rand: true, showIf: 'app.webui_enabled' },
         ]
       },
+      {
+        title: '日志配置', titleKey: 'config.schema.groups.logging',
+        section: 'logging',
+        fields: [
+          {
+            key: 'file_level',
+            label: '文件日志等级',
+            labelKey: 'config.schema.fields.fileLogLevel.label',
+            type: 'select',
+            options: [
+              { value: 'DEBUG', label: 'DEBUG' },
+              { value: 'INFO', label: 'INFO' },
+              { value: 'WARNING', label: 'WARNING' },
+              { value: 'ERROR', label: 'ERROR' },
+            ],
+            desc: '日志文件写入的最低等级，可独立于控制台配置。默认 INFO。',
+            descKey: 'config.schema.fields.fileLogLevel.desc',
+          },
+          {
+            key: 'max_files',
+            label: '日志保留天数',
+            labelKey: 'config.schema.fields.logMaxFiles.label',
+            type: 'number',
+            desc: '按天轮转时最多保留的日志文件数量。默认 7。',
+            descKey: 'config.schema.fields.logMaxFiles.desc',
+          },
+        ]
+      },
     ]
   },
   {
@@ -354,9 +443,11 @@ const SCHEMA_DEF = [
           { key: 'memory', label: '开启会话记忆', labelKey: 'config.schema.fields.memory.label', type: 'bool', desc: '启用 Grok Memory，允许模型跨会话记忆用户偏好与上下文。', descKey: 'config.schema.fields.memory.desc' },
           { key: 'stream', label: '默认流式输出', labelKey: 'config.schema.fields.stream.label', type: 'bool', desc: '请求未显式指定 stream 参数时所采用的默认值。', descKey: 'config.schema.fields.stream.desc' },
           { key: 'thinking', label: '默认思考输出', labelKey: 'config.schema.fields.thinking.label', type: 'bool', desc: '请求未显式指定 thinking 参数时所采用的默认值。启用后将在 reasoning_content 字段返回思考过程。', descKey: 'config.schema.fields.thinking.desc' },
+          { key: 'auto_chat_mode_fallback', label: 'AUTO 聊天模式回退', labelKey: 'config.schema.fields.autoChatModeFallback.label', type: 'bool', desc: 'AUTO 聊天模型在 auto 额度不可用时，自动尝试 fast 和 expert 聊天额度窗口。', descKey: 'config.schema.fields.autoChatModeFallback.desc' },
           { key: 'thinking_summary', label: '思考精简输出', labelKey: 'config.schema.fields.thinkingSummary.label', type: 'bool', desc: '启用后将思考过程提炼为结构化摘要。关闭时输出完整的原始推理过程，支持多 Agent 模型的协作详情与工具调用展示。', descKey: 'config.schema.fields.thinkingSummary.desc' },
           { key: 'dynamic_statsig', label: '动态 Statsig', labelKey: 'config.schema.fields.dynamicStatsig.label', type: 'bool', desc: '为每次请求动态生成 Statsig 设备指纹，以降低风控拦截概率。', descKey: 'config.schema.fields.dynamicStatsig.desc' },
           { key: 'enable_nsfw', label: '允许 NSFW 生成', labelKey: 'config.schema.fields.enableNsfw.label', type: 'bool', desc: '允许图像生成接口绕过 NSFW 内容过滤。', descKey: 'config.schema.fields.enableNsfw.desc' },
+          { key: 'show_search_sources', label: '正文追加信源', labelKey: 'config.schema.fields.showSearchSources.label', type: 'bool', desc: '搜索信源始终以 search_sources 字段输出。此选项控制是否同时在正文末尾追加 ## Sources 段落（兼容文本解析客户端）。', descKey: 'config.schema.fields.showSearchSources.desc' },
           { key: 'custom_instruction', label: '全局附加指令', labelKey: 'config.schema.fields.customInstruction.label', type: 'textarea', desc: '为每次请求注入统一的 system 消息，用于约束模型行为或固定角色设定。', descKey: 'config.schema.fields.customInstruction.desc' },
         ]
       },
@@ -404,11 +495,19 @@ const SCHEMA_DEF = [
         title: '配额刷新调度', titleKey: 'config.schema.groups.refreshSchedule',
         section: 'account.refresh',
         fields: [
-          { key: 'basic_interval_sec', label: 'Basic 刷新周期（秒）', labelKey: 'config.schema.fields.basicInterval.label', type: 'number', desc: 'basic 号池额度的定时刷新间隔，建议与配额窗口对齐（默认 36000 s / 10 h）。', descKey: 'config.schema.fields.basicInterval.desc' },
-          { key: 'super_interval_sec', label: 'Super 刷新周期（秒）', labelKey: 'config.schema.fields.superInterval.label', type: 'number', desc: 'super 号池额度的定时刷新间隔，建议与配额窗口对齐（默认 7200 s / 2 h）。', descKey: 'config.schema.fields.superInterval.desc' },
-          { key: 'heavy_interval_sec', label: 'Heavy 刷新周期（秒）', labelKey: 'config.schema.fields.heavyInterval.label', type: 'number', desc: 'heavy 号池额度的定时刷新间隔，建议与配额窗口对齐（默认 7200 s / 2 h）。', descKey: 'config.schema.fields.heavyInterval.desc' },
-          { key: 'on_demand_min_interval_sec', label: '按需刷新最小间隔（秒）', labelKey: 'config.schema.fields.onDemandMinInterval.label', type: 'number', desc: '请求链路触发刷新（例如收到 429）时的节流间隔。N 秒内重复触发只执行一次，避免批量打爆配额接口。', descKey: 'config.schema.fields.onDemandMinInterval.desc' },
+          { key: 'enabled', label: '启用配额刷新', labelKey: 'config.schema.fields.refreshEnabled.label', type: 'bool', desc: '开启后自动进入配额刷新模式，关闭后自动进入自动重试模式。', descKey: 'config.schema.fields.refreshEnabled.desc', help: '开启：配额刷新模式，scheduler 周期同步真实配额，选号按评分。\n关闭：自动重试模式，不主动探测 upstream，选号随机，出错自动换号重试最多 5 次。\n建议：万级以上账号关闭，避免主动探测触发 upstream 429。', helpKey: 'config.schema.fields.refreshEnabled.help' },
+          { key: 'basic_interval_sec', label: 'Basic 周期（秒）', labelKey: 'config.schema.fields.basicInterval.label', type: 'number', desc: 'basic 号池共用周期：quota 模式下用于后台刷新，random 模式下用于 429 冷却。默认 36000s。', descKey: 'config.schema.fields.basicInterval.desc' },
+          { key: 'super_interval_sec', label: 'Super 周期（秒）', labelKey: 'config.schema.fields.superInterval.label', type: 'number', desc: 'super 号池共用周期：quota 模式下用于后台刷新，random 模式下用于 429 冷却。默认 7200s。', descKey: 'config.schema.fields.superInterval.desc' },
+          { key: 'heavy_interval_sec', label: 'Heavy 周期（秒）', labelKey: 'config.schema.fields.heavyInterval.label', type: 'number', desc: 'heavy 号池共用周期：quota 模式下用于后台刷新，random 模式下用于 429 冷却。默认 7200s。', descKey: 'config.schema.fields.heavyInterval.desc' },
+          { key: 'on_demand_min_interval_sec', label: '按需刷新间隔（秒）', labelKey: 'config.schema.fields.onDemandMinInterval.label', type: 'number', desc: '请求链路触发刷新（例如收到 429）时的节流间隔。N 秒内重复触发只执行一次，避免批量打爆配额接口。', descKey: 'config.schema.fields.onDemandMinInterval.desc' },
           { key: 'usage_concurrency', label: '刷新并发数', labelKey: 'config.schema.fields.usageConcurrency.label', type: 'number', desc: '并发调用 usage 接口刷新额度时允许的最大并行数。', descKey: 'config.schema.fields.usageConcurrency.desc' },
+        ]
+      },
+      {
+        title: '选号并发限制', titleKey: 'config.schema.groups.selection',
+        section: 'account.selection',
+        fields: [
+          { key: 'max_inflight', label: '单号并发上限', labelKey: 'config.schema.fields.maxInflight.label', type: 'number', desc: '单个账号同时在执行的请求上限，超过则选号路径跳过该号（两种模式共用）。', descKey: 'config.schema.fields.maxInflight.desc' },
         ]
       },
       {
@@ -596,6 +695,33 @@ const SCHEMA_DEF = [
       },
     ]
   },
+  {
+    id: 'cache', label: '缓存存储', labelKey: 'config.schema.tabs.cache',
+    groups: [
+      {
+        title: '本地媒体缓存', titleKey: 'config.schema.groups.localMediaCache',
+        section: 'cache.local',
+        fields: [
+          {
+            key: 'image_max_mb',
+            label: '图片缓存上限（MB）',
+            labelKey: 'config.schema.fields.imageCacheMaxMb.label',
+            type: 'number',
+            desc: '0 表示不限制。仅对本地代理落盘生效；超限后按最旧文件优先清理，并一次性回落到上限的 60%。',
+            descKey: 'config.schema.fields.imageCacheMaxMb.desc',
+          },
+          {
+            key: 'video_max_mb',
+            label: '视频缓存上限（MB）',
+            labelKey: 'config.schema.fields.videoCacheMaxMb.label',
+            type: 'number',
+            desc: '0 表示不限制。仅对本地代理落盘生效；超限后按最旧文件优先清理，并一次性回落到上限的 60%。',
+            descKey: 'config.schema.fields.videoCacheMaxMb.desc',
+          },
+        ]
+      },
+    ]
+  },
 ];
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -603,14 +729,79 @@ let SCHEMA = [];
 let _cfg = {};        // loaded config (nested)
 let _dirty = {};      // { "section.key": newValue }
 let _activeTab = SCHEMA_DEF[0].id;
+let _configLoaded = false;
+let _rowRefs = new Map();
+let _tabButtons = new Map();
+let _tabDirtyCounts = new Map();
+let _tabFieldIndex = new Map();
+let _conditionalRows = [];
+let _selectRefs = [];
+let _showIfDeps = new Map();
+let _disabledSelectDeps = new Map();
 
 function tr(key, params, fallback) {
+  if (!key) return fallback ?? '';
   const value = t(key, params);
   return value === key ? (fallback ?? key) : value;
 }
 
 function waitI18n() {
   return new Promise((resolve) => I18n.onReady(resolve));
+}
+
+function _addDependency(depMap, path, target) {
+  if (!path || !target) return;
+  if (!depMap.has(path)) depMap.set(path, []);
+  depMap.get(path).push(target);
+}
+
+function _showIfPaths(showIf) {
+  if (!showIf) return [];
+  return [typeof showIf === 'string' ? showIf : showIf.path].filter(Boolean);
+}
+
+function _disabledWhenPaths(condition) {
+  if (condition === 'no_app_url') return ['app.app_url'];
+  return [];
+}
+
+function _collectDependentTargets(paths, depMap) {
+  if (!Array.isArray(paths) || !paths.length) return [];
+  const seen = new Set();
+  const items = [];
+  paths.forEach((path) => {
+    (depMap.get(path) || []).forEach((target) => {
+      if (seen.has(target)) return;
+      seen.add(target);
+      items.push(target);
+    });
+  });
+  return items;
+}
+
+function _syncTabDirtyState(tabId) {
+  const btn = _tabButtons.get(tabId);
+  if (!btn) return;
+  btn.classList.toggle('dirty', (_tabDirtyCounts.get(tabId) || 0) > 0);
+}
+
+function _updateDirtyCount(fp, delta) {
+  const tabId = _tabFieldIndex.get(fp);
+  if (!tabId || !delta) return;
+  const next = Math.max(0, (_tabDirtyCounts.get(tabId) || 0) + delta);
+  _tabDirtyCounts.set(tabId, next);
+  _syncTabDirtyState(tabId);
+}
+
+function _resetRenderCaches() {
+  _rowRefs = new Map();
+  _tabButtons = new Map();
+  _tabDirtyCounts = new Map();
+  _tabFieldIndex = new Map();
+  _conditionalRows = [];
+  _selectRefs = [];
+  _showIfDeps = new Map();
+  _disabledSelectDeps = new Map();
 }
 
 function _localizeOption(opt) {
@@ -627,6 +818,7 @@ function _localizeField(field) {
     ...field,
     label: field.labelKey ? tr(field.labelKey, null, field.label ?? field.key) : (field.label ?? field.key),
     desc: field.descKey ? tr(field.descKey, null, field.desc ?? '') : (field.desc ?? ''),
+    help: field.helpKey ? tr(field.helpKey, null, field.help ?? '') : (field.help ?? ''),
     options: field.options ? field.options.map(_localizeOption) : field.options,
   };
 }
@@ -646,8 +838,9 @@ function buildSchema() {
 function applyConfigI18n() {
   document.title = tr('config.pageTitle', null, 'Grok2API - 配置管理');
   SCHEMA = buildSchema();
+  if (!_configLoaded) return;
   renderAll();
-  _refreshDirtyState();
+  _refreshDirtyState({ autoNormalizeSelects: false });
 }
 
 // ── API ────────────────────────────────────────────────────────────────────
@@ -728,15 +921,88 @@ function _el(tag, attrs, ...children) {
   return el;
 }
 
+let _helpTipEl = null;
+let _activeHelpButton = null;
+
+function _hideHelpTip() {
+  if (_activeHelpButton) _activeHelpButton.removeAttribute('aria-describedby');
+  if (_helpTipEl) _helpTipEl.remove();
+  _helpTipEl = null;
+  _activeHelpButton = null;
+}
+
+function _positionHelpTip(button, tip) {
+  const margin = 12;
+  const rect = button.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const maxWidth = Math.max(120, viewportWidth - margin * 2);
+
+  tip.style.maxWidth = `${Math.min(320, maxWidth)}px`;
+  tip.style.left = '0px';
+  tip.style.top = '0px';
+
+  const tipRect = tip.getBoundingClientRect();
+  let left = rect.left + rect.width / 2 - tipRect.width / 2;
+  left = Math.max(margin, Math.min(left, viewportWidth - tipRect.width - margin));
+
+  let placement = 'top';
+  let top = rect.top - tipRect.height - 8;
+  if (top < margin) {
+    placement = 'bottom';
+    top = rect.bottom + 8;
+  }
+  if (top + tipRect.height > viewportHeight - margin) {
+    top = Math.max(margin, viewportHeight - tipRect.height - margin);
+  }
+
+  const arrowLeft = Math.max(12, Math.min(rect.left + rect.width / 2 - left, tipRect.width - 12));
+  tip.dataset.placement = placement;
+  tip.style.setProperty('--arrow-left', `${arrowLeft}px`);
+  tip.style.left = `${left}px`;
+  tip.style.top = `${top}px`;
+}
+
+function _showHelpTip(button) {
+  const text = button.getAttribute('data-tip');
+  if (!text) return;
+  _hideHelpTip();
+
+  const tip = _el('div', {
+    class: 'cfg-help-tip',
+    id: 'cfg-help-tip',
+    role: 'tooltip',
+  }, text);
+  document.body.appendChild(tip);
+  button.setAttribute('aria-describedby', 'cfg-help-tip');
+
+  _helpTipEl = tip;
+  _activeHelpButton = button;
+  _positionHelpTip(button, tip);
+  requestAnimationFrame(() => tip.classList.add('visible'));
+}
+
+window.addEventListener('resize', _hideHelpTip);
+window.addEventListener('scroll', _hideHelpTip, true);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') _hideHelpTip();
+});
+document.addEventListener('click', (event) => {
+  if (!event.target.closest?.('.cfg-help')) _hideHelpTip();
+});
+
 function renderInput(field, section, value) {
   const fp = _fullPath(section, field.key);
 
   const onChange = (v) => {
+    const wasDirty = fp in _dirty;
     const orig = _getValue(section, field.key);
     const same = String(orig) === String(v) || orig === v;
     if (same) delete _dirty[fp]; else _dirty[fp] = v;
+    const isDirty = fp in _dirty;
+    if (wasDirty !== isDirty) _updateDirtyCount(fp, isDirty ? 1 : -1);
     _refreshRow(section, field.key);
-    _refreshDirtyState();
+    _refreshDirtyState({ changedPaths: [fp] });
   };
 
   if (field.type === 'bool') {
@@ -752,6 +1018,7 @@ function renderInput(field, section, value) {
 
   if (field.type === 'select') {
     const sel = _el('select', { class: 'cfg-select', id: `field-${section}-${field.key}` });
+    const deps = new Set();
     (field.options || []).forEach(opt => {
       const o = document.createElement('option');
       o.value = (typeof opt === 'object') ? opt.value : opt;
@@ -763,9 +1030,14 @@ function renderInput(field, section, value) {
         const isDisabled = _evalDisabledWhen(opt.disabledWhen);
         o.disabled = isDisabled;
         if (isDisabled && opt.disabledTip) o.title = opt.disabledTip;
+        _disabledWhenPaths(opt.disabledWhen).forEach((path) => deps.add(path));
       }
       sel.appendChild(o);
     });
+    if (deps.size) {
+      _selectRefs.push(sel);
+      deps.forEach((path) => _addDependency(_disabledSelectDeps, path, sel));
+    }
     sel.addEventListener('change', () => onChange(sel.value));
     return sel;
   }
@@ -813,7 +1085,7 @@ function renderInput(field, section, value) {
   return inp;
 }
 
-function renderRow(field, section) {
+function renderRow(field, section, tabId) {
   const fp      = _fullPath(section, field.key);
   const value   = _getValue(section, field.key);
   const isDirty = fp in _dirty;
@@ -836,6 +1108,24 @@ function renderRow(field, section) {
     labelChildren.push(btn);
   }
 
+  if (field.help) {
+    labelChildren.push(_el('button', {
+      class: 'cfg-help',
+      type: 'button',
+      'aria-label': field.help,
+      'data-tip': field.help,
+      onmouseenter: (event) => _showHelpTip(event.currentTarget),
+      onmouseleave: _hideHelpTip,
+      onfocus: (event) => _showHelpTip(event.currentTarget),
+      onblur: _hideHelpTip,
+      onclick: (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        _showHelpTip(event.currentTarget);
+      },
+    }, '?'));
+  }
+
   labelChildren.push(dot);
 
   const labelCol = _el('div', { class: 'cfg-label-col' },
@@ -850,18 +1140,24 @@ function renderRow(field, section) {
     'data-key': field.key,
   }, labelCol, inputCol);
 
+  _rowRefs.set(fp, row);
+  _tabFieldIndex.set(fp, tabId);
+  if (isDirty) _tabDirtyCounts.set(tabId, (_tabDirtyCounts.get(tabId) || 0) + 1);
+
   // Conditional visibility
   if (field.showIf) {
-    row.dataset.showIf = JSON.stringify(field.showIf);
+    row._showIfSpec = field.showIf;
     row.style.display = _evalShowIf(field.showIf) ? '' : 'none';
+    _conditionalRows.push(row);
+    _showIfPaths(field.showIf).forEach((path) => _addDependency(_showIfDeps, path, row));
   }
 
   return row;
 }
 
-function renderGroup(group) {
+function renderGroup(group, tabId) {
   const section = group.section;
-  const rows    = group.fields.map(f => renderRow(f, f.section || section));
+  const rows    = group.fields.map(f => renderRow(f, f.section || section, tabId));
   const titleEl = _el('div', { class: 'cfg-group-title' }, group.title || '');
   const wrap    = _el('div', { class: 'cfg-group' }, titleEl, ...rows);
   return wrap;
@@ -870,13 +1166,14 @@ function renderGroup(group) {
 function renderPanel(tab) {
   const panel = _el('div', { class: `cfg-panel${tab.id === _activeTab ? ' active' : ''}`,
     id: `panel-${tab.id}` });
-  tab.groups.forEach(g => panel.appendChild(renderGroup(g)));
+  tab.groups.forEach(g => panel.appendChild(renderGroup(g, tab.id)));
   return panel;
 }
 
 function renderAll() {
   const nav    = document.getElementById('cfg-nav');
   const panels = document.getElementById('cfg-panels');
+  _resetRenderCaches();
   nav.innerHTML = ''; panels.innerHTML = '';
 
   SCHEMA.forEach(tab => {
@@ -886,11 +1183,13 @@ function renderAll() {
       onclick: () => switchTab(tab.id),
       'data-tab': tab.id,
     }, tab.label, _el('span', { class: 'dot' }));
+    _tabButtons.set(tab.id, btn);
     nav.appendChild(btn);
 
     // Panel
     panels.appendChild(renderPanel(tab));
   });
+  _tabButtons.forEach((_, tabId) => _syncTabDirtyState(tabId));
 }
 
 function switchTab(id) {
@@ -903,11 +1202,39 @@ function switchTab(id) {
 
 // ── Dirty state helpers ────────────────────────────────────────────────────
 function _refreshRow(section, key) {
-  const row = document.querySelector(`.cfg-row[data-section="${section}"][data-key="${key}"]`);
+  const row = _rowRefs.get(_fullPath(section, key));
   if (row) row.classList.toggle('modified', _fullPath(section, key) in _dirty);
 }
 
-function _refreshDirtyState() {
+function _refreshConditionalRows(changedPaths = null) {
+  const rows = changedPaths ? _collectDependentTargets(changedPaths, _showIfDeps) : _conditionalRows;
+  rows.forEach((row) => {
+    row.style.display = _evalShowIf(row._showIfSpec) ? '' : 'none';
+  });
+}
+
+function _refreshSelectStates(changedPaths = null, { autoNormalizeSelects = true } = {}) {
+  const selects = changedPaths ? _collectDependentTargets(changedPaths, _disabledSelectDeps) : _selectRefs;
+  selects.forEach((sel) => {
+    let anyChanged = false;
+    [...sel.options].forEach(o => {
+      if (!o.dataset.disabledWhen) return;
+      const isDisabled = _evalDisabledWhen(o.dataset.disabledWhen);
+      o.disabled = isDisabled;
+      o.title = isDisabled ? (o.dataset.disabledTip || '') : '';
+      if (autoNormalizeSelects && isDisabled && o.selected) anyChanged = true;
+    });
+    if (anyChanged) {
+      const firstEnabled = [...sel.options].find(o => !o.disabled);
+      if (firstEnabled) {
+        firstEnabled.selected = true;
+        sel.dispatchEvent(new Event('change'));
+      }
+    }
+  });
+}
+
+function _refreshDirtyState({ autoNormalizeSelects = true, changedPaths = null } = {}) {
   const n = Object.keys(_dirty).length;
   document.getElementById('btn-save').disabled  = n === 0;
   document.getElementById('btn-reset').disabled = n === 0;
@@ -928,48 +1255,20 @@ function _refreshDirtyState() {
     webuiLinkBtn.setAttribute('aria-label', webuiLinkBtn.title);
   }
 
-  // Update showIf conditional rows
-  document.querySelectorAll('.cfg-row[data-show-if]').forEach(row => {
-    const spec = JSON.parse(row.dataset.showIf);
-    row.style.display = _evalShowIf(spec) ? '' : 'none';
-  });
-
-  // Re-evaluate disabled options in selects
-  document.querySelectorAll('select.cfg-select').forEach(sel => {
-    let anyChanged = false;
-    [...sel.options].forEach(o => {
-      if (!o.dataset.disabledWhen) return;
-      const isDisabled = _evalDisabledWhen(o.dataset.disabledWhen);
-      o.disabled = isDisabled;
-      o.title = isDisabled ? (o.dataset.disabledTip || '') : '';
-      if (isDisabled && o.selected) anyChanged = true;
-    });
-    // If the currently selected option became disabled, switch to first enabled
-    if (anyChanged) {
-      const firstEnabled = [...sel.options].find(o => !o.disabled);
-      if (firstEnabled) {
-        firstEnabled.selected = true;
-        sel.dispatchEvent(new Event('change'));
-      }
-    }
-  });
-
-  // Tab dirty dots — check if any dirty key belongs to a row in that panel
-  SCHEMA.forEach(tab => {
-    const panel = document.getElementById(`panel-${tab.id}`);
-    const relevant = panel ? [...panel.querySelectorAll('.cfg-row')].some(r =>
-      _fullPath(r.dataset.section, r.dataset.key) in _dirty) : false;
-    document.querySelector(`.cfg-tab[data-tab="${tab.id}"]`)?.classList.toggle('dirty', relevant);
-  });
+  _refreshConditionalRows(changedPaths);
+  _refreshSelectStates(changedPaths, { autoNormalizeSelects });
+  if (!changedPaths) _tabButtons.forEach((_, tabId) => _syncTabDirtyState(tabId));
 }
 
 // ── Load config ────────────────────────────────────────────────────────────
 async function load() {
   try {
     _cfg = await _api('GET', '/config');
+    _dirty = {};
+    _configLoaded = true;
     if (!SCHEMA.length) SCHEMA = buildSchema();
     renderAll();
-    _refreshDirtyState();
+    _refreshDirtyState({ autoNormalizeSelects: false });
   } catch (e) {
     showToast(tr('config.loadFailed', { message: e.message }, `配置加载失败: ${e.message}`), 'error');
   }
@@ -992,7 +1291,7 @@ async function doSave() {
     _dirty = {};
     // Re-render to clear modified state
     renderAll();
-    _refreshDirtyState();
+    _refreshDirtyState({ autoNormalizeSelects: false });
     showToast(tr('config.saveSuccess', null, '更改已保存'), 'success');
   } catch (e) {
     showToast(tr('config.saveFailed', { message: e.message }, `保存更改失败: ${e.message}`), 'error');
@@ -1004,7 +1303,7 @@ function doReset() {
   if (!Object.keys(_dirty).length) return;
   _dirty = {};
   renderAll();
-  _refreshDirtyState();
+  _refreshDirtyState({ autoNormalizeSelects: false });
   showToast(tr('config.resetSuccess', null, '未保存的更改已撤销'), 'info');
 }
 
@@ -1012,8 +1311,6 @@ function doReset() {
 (async () => {
   try {
     SCHEMA = buildSchema();
-    renderAll();
-    _refreshDirtyState();
 
     waitI18n().then(() => {
       applyConfigI18n();
