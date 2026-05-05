@@ -826,7 +826,7 @@ async def _run_video_job(
     prompt: str,
     seconds: int,
     preset: str | None,
-    input_reference: dict[str, Any] | None = None,
+    input_references: list[dict[str, Any]] | None = None,
 ) -> None:
     try:
         await _set_job_status(job, status="in_progress", progress=1)
@@ -883,7 +883,7 @@ async def _run_video_job(
                         seconds=seconds,
                         preset=resolved_preset,
                         timeout_s=timeout_s,
-                        input_references=[input_reference] if input_reference else None,
+                        input_references=input_references,
                         progress_cb=_progress,
                     )
                     raw, _mime = await _download_video_bytes(token, artifact.video_url)
@@ -949,7 +949,7 @@ async def create_video(
     size: str | None = None,
     resolution_name: str | None = None,
     preset: str | None = None,
-    input_reference: dict[str, Any] | None = None,
+    input_references: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     spec = model_registry.get(model)
     if spec is None or not spec.enabled or not spec.is_video():
@@ -984,7 +984,7 @@ async def create_video(
             prompt=cleaned_prompt,
             seconds=normalized_seconds,
             preset=preset,
-            input_reference=input_reference,
+            input_references=input_references,
         )
     )
     asyncio.create_task(_expire_video_job(job.id))
