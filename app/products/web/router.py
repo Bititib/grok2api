@@ -58,6 +58,10 @@ async def admin_config():
 async def admin_cache():
     return _serve_html("admin/cache.html")
 
+@router.get("/admin/billing", include_in_schema=False)
+async def admin_billing():
+    return _serve_html("admin/billing.html")
+
 
 # --- WebUI ---
 @router.get("/webui", include_in_schema=False)

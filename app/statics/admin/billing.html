@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grok2API - 计费管理</title>
+  <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
+  <style>
+    body { background:#FAF9F5 }
+    .page-hd { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px }
+    .page-title { font-size:22px; font-weight:700; line-height:1.2 }
+    .page-sub { font-size:13px; color:var(--fg-muted); margin-top:5px }
+    .page-actions { display:flex; gap:8px; align-items:center }
+    .page-action-btn { height:32px; padding:0 14px; border-radius:999px; display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; border:1px solid #e6e6e6; background:#fafafa; color:#444; cursor:pointer }
+    .page-action-btn:hover { background:#f3f3f3 }
+    .page-action-btn-primary { background:#111; border-color:#111; color:#fff }
+    .page-action-btn-primary:hover { background:#222 }
+
+    /* Tab bar */
+    .tab-bar { display:flex; gap:0; margin-bottom:24px; border-bottom:1px solid #e8e4dc }
+    .tab-item { padding:10px 18px; font-size:13px; font-weight:500; color:#8a8a8a; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s }
+    .tab-item:hover { color:#555 }
+    .tab-item.active { color:#111; border-bottom-color:#111; font-weight:600 }
+    .tab-panel { display:none }
+    .tab-panel.active { display:block }
+
+    /* Stats */
+    .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px }
+    .stat-cell { min-height:88px; padding:14px 16px; border-radius:12px; background:#fff; display:flex; flex-direction:column; gap:12px }
+    .stat-top { display:flex; align-items:center; justify-content:space-between }
+    .stat-label { font-size:11px; color:#8a8a8a }
+    .stat-icon { width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; color:#a3a3a3 }
+    .stat-icon svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8 }
+    .stat-num { font-size:22px; font-weight:600; line-height:1; margin-top:auto }
+
+    /* Table */
+    .table-card { background:#fff; border-radius:14px; overflow-x:auto }
+    table { width:100%; border-collapse:collapse }
+    th { background:#fff; font-size:11px; font-weight:500; color:#9b9b9b; padding:11px 16px; text-align:left }
+    td { font-size:13px; padding:13px 16px; border-bottom:none; color:#3f3f3f; vertical-align:middle }
+    tr:hover td { background:#fdfdfd }
+    .badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:500 }
+    .badge-active { color:#3e8f69; background:#f2f8f4 }
+    .badge-disabled { color:#6f675d; background:#f1ece4 }
+    .badge-expired { color:#b66a63; background:#fbf3f2 }
+    .tok { font-family:ui-monospace,monospace; font-size:12px; color:#333 }
+    .empty-state { padding:48px 16px; color:#8a8a8a; font-size:13px; text-align:center }
+
+    /* Row actions */
+    .row-actions { display:flex; align-items:center; gap:10px }
+    .row-action { color:#929292; font-size:11px; font-weight:500; cursor:pointer }
+    .row-action:hover { color:#555 }
+    .row-action-danger { color:#b7726a }
+    .row-action-danger:hover { color:#92514b }
+
+    /* Pagination */
+    .pagi { display:flex; align-items:center; gap:6px; padding:12px 16px }
+    .pagi-btn { width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; color:inherit; font:inherit; cursor:pointer }
+    .pagi-btn:hover { background:#f0ebe2 }
+    .pagi-btn:disabled { opacity:.35; pointer-events:none }
+
+    /* Modal */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:100 }
+    .modal-overlay.open { display:flex }
+    .modal { background:#FAF9F5; border-radius:16px; padding:24px; width:min(440px,92vw); max-height:85vh; overflow-y:auto }
+    .modal-title { font-size:16px; font-weight:600; margin-bottom:16px }
+    .dialog-body { display:grid; gap:12px }
+    .dialog-field { display:flex; align-items:center; gap:10px }
+    .dialog-label { width:64px; font-size:13px; color:var(--fg-muted); white-space:nowrap; flex:0 0 auto }
+    .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px }
+    .dialog-btn { height:32px; padding:0 14px; border-radius:999px; background:#fafafa; color:#444; font-size:13px; font-weight:600; cursor:pointer; border:1px solid #e6e6e6 }
+    .dialog-btn:hover { background:#f3f3f3 }
+    .dialog-btn-primary { background:#111; color:#fff; border-color:#111 }
+    .dialog-btn-primary:hover { background:#222 }
+    .dialog-btn-danger { color:#b42318; background:#fff5f4; border-color:#fecaca }
+    .dialog-btn-danger:hover { background:#feeceb }
+
+    /* Responsive */
+    @media(max-width:768px){
+      .stat-grid{grid-template-columns:repeat(2,1fr)}
+      .tab-bar{overflow-x:auto}
+    }
+  </style>
+</head>
+<body>
+
+<div id="admin-header" data-active="/admin/billing"></div>
+
+<main class="admin-main">
+  <div class="page-hd">
+    <div>
+      <div class="page-title">计费管理</div>
+      <div class="page-sub">管理 API Key、查看用量统计与计费明细</div>
+    </div>
+    <div class="page-actions">
+      <button onclick="openCreate()" class="page-action-btn page-action-btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>新建 Key</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tab-bar">
+    <div class="tab-item active" data-tab="keys" onclick="switchTab('keys')">API Key 管理</div>
+    <div class="tab-item" data-tab="usage" onclick="switchTab('usage')">用量明细</div>
+  </div>
+
+  <!-- Keys Tab -->
+  <div class="tab-panel active" id="panel-keys">
+    <div class="stat-grid" id="key-stats">
+      <div class="stat-cell"><div class="stat-top"><div class="stat-label">Key 总数</div><span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.78 7.78 5.5 5.5 0 0 1 7.78-7.78zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg></span></div><div class="stat-num" id="s-keys">0</div></div>
+      <div class="stat-cell"><div class="stat-top"><div class="stat-label">总余额</div><span class="stat-icon" style="color:#16a34a"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span></div><div class="stat-num" id="s-balance" style="color:#16a34a">0</div></div>
+      <div class="stat-cell"><div class="stat-top"><div class="stat-label">总消费</div><span class="stat-icon" style="color:#ea580c"><svg viewBox="0 0 24 24"><path d="M5 19h14M8 16V10M12 16V6M16 16v-3"/></svg></span></div><div class="stat-num" id="s-charged" style="color:#ea580c">0</div></div>
+      <div class="stat-cell"><div class="stat-top"><div class="stat-label">总请求</div><span class="stat-icon" style="color:#111"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span></div><div class="stat-num" id="s-requests">0</div></div>
+    </div>
+    <div class="table-card">
+      <table><thead><tr>
+        <th>名称</th><th>Key</th><th>状态</th><th>分组</th><th>余额</th><th>已消费</th><th>创建时间</th><th>操作</th>
+      </tr></thead><tbody id="keys-tbody"><tr><td colspan="8" class="empty-state">加载中...</td></tr></tbody></table>
+      <div class="pagi" id="keys-pagi"></div>
+    </div>
+  </div>
+
+  <!-- Usage Tab -->
+  <div class="tab-panel" id="panel-usage">
+    <div class="table-card">
+      <table><thead><tr>
+        <th>时间</th><th>Key</th><th>模型</th><th>类型</th><th>Token (入/出)</th><th>视频秒数</th><th>费用</th><th>状态</th><th>耗时</th>
+      </tr></thead><tbody id="usage-tbody"><tr><td colspan="9" class="empty-state">加载中...</td></tr></tbody></table>
+      <div class="pagi" id="usage-pagi"></div>
+    </div>
+  </div>
+</main>
+
+<!-- Create Key Modal -->
+<div class="modal-overlay" id="modal-create">
+  <div class="modal">
+    <div class="modal-title">新建 API Key</div>
+    <div class="dialog-body">
+      <div class="dialog-field"><span class="dialog-label">名称</span><input id="f-name" class="input" style="flex:1;height:32px;font-size:12px" placeholder="如: 张三测试"></div>
+      <div class="dialog-field"><span class="dialog-label">初始余额</span><input id="f-balance" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="10" step="0.1"></div>
+      <div class="dialog-field"><span class="dialog-label">分组</span><input id="f-group" class="input" style="flex:1;height:32px;font-size:12px" value="default" placeholder="default / vip"></div>
+    </div>
+    <div class="dialog-actions">
+      <button onclick="closeModal('modal-create')" class="dialog-btn">取消</button>
+      <button onclick="doCreate()" class="dialog-btn dialog-btn-primary">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- Topup Modal -->
+<div class="modal-overlay" id="modal-topup">
+  <div class="modal">
+    <div class="modal-title">充值</div>
+    <div class="dialog-body">
+      <div class="dialog-field"><span class="dialog-label">Key</span><span id="topup-key" class="tok" style="flex:1;overflow:hidden;text-overflow:ellipsis"></span></div>
+      <div class="dialog-field"><span class="dialog-label">充值金额</span><input id="f-topup" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="10" step="0.1"></div>
+    </div>
+    <div class="dialog-actions">
+      <button onclick="closeModal('modal-topup')" class="dialog-btn">取消</button>
+      <button onclick="doTopup()" class="dialog-btn dialog-btn-primary">确认充值</button>
+    </div>
+  </div>
+</div>
+
+<!-- Key Detail / Copy Modal -->
+<div class="modal-overlay" id="modal-detail">
+  <div class="modal">
+    <div class="modal-title">Key 详情</div>
+    <div class="dialog-body">
+      <div class="dialog-field"><span class="dialog-label">完整 Key</span><input id="detail-key" class="input tok" readonly style="flex:1;height:32px;font-size:12px"></div>
+      <div style="font-size:11px;color:#8a8a8a">⚠️ 请妥善保管，此 Key 仅在创建时显示一次完整值</div>
+    </div>
+    <div class="dialog-actions">
+      <button onclick="closeModal('modal-detail')" class="dialog-btn">关闭</button>
+      <button onclick="copyKey()" class="dialog-btn dialog-btn-primary">复制 Key</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
+<script>
+/* ─── State ───────────────────────────────────────────────── */
+let _adminToken = '';
+let _keysPage = 1, _keysTotal = 0;
+let _usagePage = 1, _usageTotal = 0;
+const PAGE_SIZE = 20;
+let _topupTarget = '';
+
+/* ─── Init ────────────────────────────────────────────────── */
+(async () => {
+  _adminToken = await adminKey.get();
+  if (!_adminToken) { location.href = '/admin/login'; return; }
+  try { if (!(await verifyKey(ADMIN_API+'/verify', _adminToken))) { location.href='/admin/login'; return; } } catch { location.href='/admin/login'; return; }
+  loadKeys();
+  loadUsageSummary();
+  await renderSiteFooter?.();
+})();
+
+/* ─── API helpers ─────────────────────────────────────────── */
+async function api(path, opts = {}) {
+  const h = { 'Authorization': `Bearer ${_adminToken}`, ...opts.headers || {} };
+  if (opts.body && typeof opts.body === 'object') { h['Content-Type'] = 'application/json'; opts.body = JSON.stringify(opts.body); }
+  const r = await fetch(ADMIN_API + '/billing' + path, { ...opts, headers: h });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail?.message || e?.detail || r.statusText); }
+  return r.json();
+}
+
+/* ─── Tabs ────────────────────────────────────────────────── */
+function switchTab(name) {
+  document.querySelectorAll('.tab-item').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+  if (name === 'usage' && document.getElementById('usage-tbody').children.length <= 1) loadUsage();
+}
+
+/* ─── Keys ────────────────────────────────────────────────── */
+async function loadKeys() {
+  try {
+    const d = await api(`/keys?page=${_keysPage}&page_size=${PAGE_SIZE}`);
+    _keysTotal = d.total;
+    renderKeys(d.items);
+    renderPagi('keys-pagi', _keysPage, Math.ceil(d.total / PAGE_SIZE), p => { _keysPage = p; loadKeys(); });
+    // Update stats
+    let totalBal = 0, totalCharged = 0;
+    d.items.forEach(k => { totalBal += k.balance; totalCharged += k.total_charged; });
+    document.getElementById('s-keys').textContent = d.total;
+    document.getElementById('s-balance').textContent = totalBal.toFixed(2);
+    document.getElementById('s-charged').textContent = totalCharged.toFixed(4);
+  } catch (e) { showToast('加载失败: ' + e.message, 'error'); }
+}
+
+function renderKeys(items) {
+  const tb = document.getElementById('keys-tbody');
+  if (!items.length) { tb.innerHTML = '<tr><td colspan="8" class="empty-state">暂无 API Key，点击右上角"新建 Key"创建</td></tr>'; return; }
+  tb.innerHTML = items.map(k => {
+    const display = k.key_display || (k.key.slice(0, 8) + '...' + k.key.slice(-4));
+    const statusCls = k.status === 'active' ? 'badge-active' : k.status === 'disabled' ? 'badge-disabled' : 'badge-expired';
+    const time = new Date(k.created_at).toLocaleDateString('zh-CN');
+    return `<tr>
+      <td><strong>${esc(k.name || '—')}</strong></td>
+      <td><span class="tok">${esc(display)}</span></td>
+      <td><span class="badge ${statusCls}">${esc(k.status)}</span></td>
+      <td>${esc(k.group)}</td>
+      <td style="font-variant-numeric:tabular-nums">${k.balance.toFixed(4)}</td>
+      <td style="font-variant-numeric:tabular-nums">${k.total_charged.toFixed(4)}</td>
+      <td style="color:#8a8a8a;font-size:12px">${time}</td>
+      <td><div class="row-actions">
+        <button class="row-action" onclick="openTopup('${esc(k.key)}')">充值</button>
+        <button class="row-action" onclick="toggleStatus('${esc(k.key)}','${k.status}')">${k.status==='active'?'禁用':'启用'}</button>
+        <button class="row-action row-action-danger" onclick="deleteKey('${esc(k.key)}')">删除</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─── Usage ───────────────────────────────────────────────── */
+async function loadUsageSummary() {
+  try {
+    const d = await api('/usage/summary');
+    document.getElementById('s-requests').textContent = d.total_requests || 0;
+  } catch {}
+}
+
+async function loadUsage() {
+  try {
+    const d = await api(`/usage?page=${_usagePage}&page_size=${PAGE_SIZE}`);
+    _usageTotal = d.total;
+    renderUsage(d.items);
+    renderPagi('usage-pagi', _usagePage, Math.ceil(d.total / PAGE_SIZE), p => { _usagePage = p; loadUsage(); });
+  } catch (e) { showToast('加载失败: ' + e.message, 'error'); }
+}
+
+function renderUsage(items) {
+  const tb = document.getElementById('usage-tbody');
+  if (!items.length) { tb.innerHTML = '<tr><td colspan="9" class="empty-state">暂无调用记录</td></tr>'; return; }
+  tb.innerHTML = items.map(u => {
+    const time = new Date(u.created_at).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const keyShort = u.api_key ? u.api_key.slice(0,8)+'...' : '—';
+    const statusCls = u.status==='success' ? 'badge-active' : 'badge-expired';
+    return `<tr>
+      <td style="font-size:12px;color:#8a8a8a;white-space:nowrap">${time}</td>
+      <td><span class="tok" style="font-size:11px">${esc(u.key_name||keyShort)}</span></td>
+      <td style="font-size:12px">${esc(u.model)}</td>
+      <td><span class="badge badge-active" style="font-size:10px">${esc(u.endpoint)}</span></td>
+      <td style="font-variant-numeric:tabular-nums;font-size:12px">${u.prompt_tokens} / ${u.completion_tokens}</td>
+      <td style="font-variant-numeric:tabular-nums">${u.video_seconds||'—'}</td>
+      <td style="font-variant-numeric:tabular-nums;font-weight:600">${u.cost.toFixed(6)}</td>
+      <td><span class="badge ${statusCls}">${u.status}</span></td>
+      <td style="font-size:12px;color:#8a8a8a">${u.duration_ms}ms</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─── Pagination ──────────────────────────────────────────── */
+function renderPagi(id, current, total, cb) {
+  const el = document.getElementById(id);
+  if (total <= 1) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <button class="pagi-btn" ${current<=1?'disabled':''} onclick="void 0">‹</button>
+    <span style="font-size:12px;color:#8a8a8a;padding:0 8px">${current} / ${total}</span>
+    <button class="pagi-btn" ${current>=total?'disabled':''} onclick="void 0">›</button>`;
+  el.children[0].onclick = () => { if(current>1) cb(current-1); };
+  el.children[2].onclick = () => { if(current<total) cb(current+1); };
+}
+
+/* ─── Create Key ──────────────────────────────────────────── */
+function openCreate() { document.getElementById('f-name').value=''; document.getElementById('f-balance').value='10'; document.getElementById('f-group').value='default'; openModal('modal-create'); }
+
+async function doCreate() {
+  const name = document.getElementById('f-name').value.trim();
+  const balance = parseFloat(document.getElementById('f-balance').value) || 0;
+  const group = document.getElementById('f-group').value.trim() || 'default';
+  try {
+    const d = await api('/keys', { method:'POST', body:{ name, balance, group } });
+    closeModal('modal-create');
+    showToast('Key 创建成功', 'success');
+    // Show full key
+    document.getElementById('detail-key').value = d.key.key;
+    openModal('modal-detail');
+    loadKeys();
+  } catch(e) { showToast('创建失败: '+e.message, 'error'); }
+}
+
+/* ─── Topup ───────────────────────────────────────────────── */
+function openTopup(key) { _topupTarget=key; document.getElementById('topup-key').textContent=key.slice(0,12)+'...'+key.slice(-4); document.getElementById('f-topup').value='10'; openModal('modal-topup'); }
+
+async function doTopup() {
+  const amount = parseFloat(document.getElementById('f-topup').value) || 0;
+  if (amount <= 0) { showToast('金额必须大于0', 'error'); return; }
+  try {
+    await api(`/keys/${encodeURIComponent(_topupTarget)}/topup`, { method:'POST', body:{ amount } });
+    closeModal('modal-topup');
+    showToast(`充值 ${amount} 成功`, 'success');
+    loadKeys();
+  } catch(e) { showToast('充值失败: '+e.message, 'error'); }
+}
+
+/* ─── Toggle / Delete ─────────────────────────────────────── */
+async function toggleStatus(key, current) {
+  const newStatus = current === 'active' ? 'disabled' : 'active';
+  try {
+    await api(`/keys/${encodeURIComponent(key)}`, { method:'PATCH', body:{ status: newStatus } });
+    showToast(`已${newStatus==='active'?'启用':'禁用'}`, 'success');
+    loadKeys();
+  } catch(e) { showToast('操作失败: '+e.message, 'error'); }
+}
+
+async function deleteKey(key) {
+  if (!confirm(`确认删除此 Key？此操作不可撤销。\n${key.slice(0,12)}...`)) return;
+  try {
+    await api(`/keys/${encodeURIComponent(key)}`, { method:'DELETE' });
+    showToast('已删除', 'success');
+    loadKeys();
+  } catch(e) { showToast('删除失败: '+e.message, 'error'); }
+}
+
+/* ─── Copy ────────────────────────────────────────────────── */
+function copyKey() {
+  const v = document.getElementById('detail-key').value;
+  navigator.clipboard.writeText(v).then(() => showToast('已复制到剪贴板', 'success')).catch(() => { document.getElementById('detail-key').select(); document.execCommand('copy'); showToast('已复制', 'success'); });
+}
+
+/* ─── Modal helpers ───────────────────────────────────────── */
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(el => el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); }));
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+</script>
+</body>
+</html>

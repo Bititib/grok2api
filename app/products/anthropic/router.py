@@ -1,5 +1,7 @@
 """Anthropic Messages API router (/v1/messages)."""
 
+import asyncio
+import time
 from typing import Any
 
 import orjson
@@ -77,8 +79,17 @@ async def _safe_sse_anthropic(stream):
 # ---------------------------------------------------------------------------
 
 @router.post("/messages", tags=[_TAG_MESSAGES])
-async def messages_endpoint(req: MessagesRequest):
+async def messages_endpoint(request: Request, req: MessagesRequest):
     from app.platform.config.snapshot import get_config
+
+    # Billing: check model access
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is not None and not billing_key.can_use_model(req.model):
+        raise ValidationError(
+            f"Your API key does not have access to model {req.model!r}",
+            param="model", code="model_access_denied",
+        )
+    _start_time = time.monotonic()
 
     # Model validation
     spec = model_registry.get(req.model)
@@ -117,6 +128,24 @@ async def messages_endpoint(req: MessagesRequest):
     )
 
     if isinstance(result, dict):
+        # Billing: record usage from Anthropic response format
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            svc = get_billing_service()
+            if svc is not None:
+                usage = result.get("usage", {})
+                duration_ms = int((time.monotonic() - _start_time) * 1000)
+                asyncio.create_task(
+                    svc.record_usage(
+                        billing_key,
+                        model=req.model,
+                        endpoint="messages",
+                        prompt_tokens=usage.get("input_tokens", 0),
+                        completion_tokens=usage.get("output_tokens", 0),
+                        request_id=result.get("id", ""),
+                        duration_ms=duration_ms,
+                    )
+                )
         return JSONResponse(result)
     return StreamingResponse(
         _safe_sse_anthropic(result),

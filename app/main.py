@@ -243,6 +243,16 @@ async def lifespan(app: FastAPI):
     if is_leader:
         proxy_scheduler.start()
 
+    # 6. Initialise billing service (independent SQLite DB).
+    from app.control.billing.repository import BillingRepository
+    from app.control.billing.service import BillingService, set_billing_service
+
+    billing_repo = BillingRepository()
+    await billing_repo.initialize()
+    billing_svc = BillingService(billing_repo)
+    set_billing_service(billing_svc)
+    app.state.billing_service = billing_svc
+
     logger.info("application startup completed")
     yield
 
@@ -260,6 +270,9 @@ async def lifespan(app: FastAPI):
         scheduler.stop()
         proxy_scheduler.stop()
         _release_scheduler_lock()
+
+    set_billing_service(None)
+    await billing_repo.close()
 
     set_refresh_scheduler(None)
     set_refresh_scheduler_leader(False)

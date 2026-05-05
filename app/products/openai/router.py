@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import mimetypes
+import time
 from typing import Annotated, AsyncGenerator, AsyncIterable, Literal
 
 import orjson
@@ -34,6 +35,7 @@ _TAG_RESPONSES = "OpenAI - Responses"
 _TAG_IMAGES = "OpenAI - Images"
 _TAG_VIDEOS = "OpenAI - Videos"
 _TAG_FILES = "OpenAI - Files"
+_TAG_BILLING = "Billing"
 
 
 async def _available_pools(request: Request) -> frozenset[str]:
@@ -239,7 +241,9 @@ async def _upload_to_data_uri(upload: UploadFile, *, param: str) -> str:
 @router.post(
     "/chat/completions", tags=[_TAG_CHAT], dependencies=[Depends(verify_api_key)]
 )
-async def chat_completions_endpoint(req: ChatCompletionRequest):
+async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest):
+    _check_billing_model_access(request, req.model)
+    _start_time = time.monotonic()
     _validate_chat(req)
     from app.platform.config.snapshot import get_config
 
@@ -373,6 +377,8 @@ async def chat_completions_endpoint(req: ChatCompletionRequest):
         raise
 
     if isinstance(result, dict):
+        _billing_record_from_result(request, result, req.model, "chat", _start_time,
+                                    video_seconds=(req.video_config.seconds or 6) if spec.is_video() and req.video_config else 0)
         return JSONResponse(result)
     return StreamingResponse(
         _sse_with_heartbeat(_safe_sse(result)),
@@ -411,7 +417,9 @@ async def _safe_sse_responses(stream) -> AsyncGenerator[str, None]:
 @router.post(
     "/responses", tags=[_TAG_RESPONSES], dependencies=[Depends(verify_api_key)]
 )
-async def responses_endpoint(req: ResponsesCreateRequest):
+async def responses_endpoint(request: Request, req: ResponsesCreateRequest):
+    _check_billing_model_access(request, req.model)
+    _start_time = time.monotonic()
     from app.platform.config.snapshot import get_config
     from app.platform.errors import ValidationError as _ValidationError
 
@@ -454,6 +462,7 @@ async def responses_endpoint(req: ResponsesCreateRequest):
     )
 
     if isinstance(result, dict):
+        _billing_record_from_result(request, result, req.model, "responses", _start_time)
         return JSONResponse(result)
     return StreamingResponse(
         _sse_with_heartbeat(_safe_sse_responses(result)),
@@ -470,7 +479,9 @@ async def responses_endpoint(req: ResponsesCreateRequest):
 @router.post(
     "/images/generations", tags=[_TAG_IMAGES], dependencies=[Depends(verify_api_key)]
 )
-async def image_generations(req: ImageGenerationRequest):
+async def image_generations(request: Request, req: ImageGenerationRequest):
+    _check_billing_model_access(request, req.model)
+    _start_time = time.monotonic()
     spec = model_registry.get(req.model)
     if spec is None or not spec.enabled or not spec.is_image():
         raise ValidationError(
@@ -480,6 +491,7 @@ async def image_generations(req: ImageGenerationRequest):
 
     from .images import generate as img_gen
 
+    _n_images = req.n or 1
     result = await img_gen(
         model=req.model,
         prompt=req.prompt,
@@ -489,6 +501,7 @@ async def image_generations(req: ImageGenerationRequest):
         stream=False,
         chat_format=False,
     )
+    _billing_record_image(request, req.model, _n_images, _start_time)
     return JSONResponse(result)
 
 
@@ -499,6 +512,7 @@ async def image_generations(req: ImageGenerationRequest):
 
 @router.post("/videos", tags=[_TAG_VIDEOS], dependencies=[Depends(verify_api_key)])
 async def videos_create(
+    request: Request,
     model: Annotated[str, Form(...)],
     prompt: Annotated[str, Form(...)],
     seconds: Annotated[int, Form()] = 6,
@@ -522,6 +536,8 @@ async def videos_create(
             for f in input_reference[:5]
         ]
 
+    _start_time = time.monotonic()
+    _check_billing_model_access(request, model or "grok-video")
     result = await create_video(
         model=model or "grok-video",
         prompt=prompt,
@@ -531,6 +547,7 @@ async def videos_create(
         preset=preset,
         input_references=references_payload,
     )
+    _billing_record_from_result(request, result, model or "grok-video", "video", _start_time, video_seconds=seconds)
     return JSONResponse(result)
 
 
@@ -564,6 +581,7 @@ async def videos_content(video_id: str):
     "/images/edits", tags=[_TAG_IMAGES], dependencies=[Depends(verify_api_key)]
 )
 async def image_edits(
+    request: Request,
     model: Annotated[str, Form(...)],
     prompt: Annotated[str, Form(...)],
     image: Annotated[list[UploadFile], File(..., alias="image[]")],
@@ -594,6 +612,8 @@ async def image_edits(
         for image_input in image_inputs
     )
     messages = [{"role": "user", "content": content}]
+    _start_time = time.monotonic()
+    _check_billing_model_access(request, model)
     result = await img_edit(
         model=model,
         messages=messages,
@@ -603,6 +623,7 @@ async def image_edits(
         stream=False,
         chat_format=False,
     )
+    _billing_record_image(request, model, n, _start_time)
     return JSONResponse(result)
 
 
@@ -642,6 +663,149 @@ async def serve_image(id: str = Query(..., description="Image file ID")):
             return FileResponse(path, media_type=mime)
 
     raise ValidationError(f"Image {id!r} not found", param="id")
+
+
+# ---------------------------------------------------------------------------
+# /v1/billing/balance  (user self-service balance check)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/billing/balance", tags=[_TAG_BILLING], dependencies=[Depends(verify_api_key)])
+async def billing_balance(request: Request):
+    """Check remaining balance for the current API key."""
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is None:
+        return JSONResponse({"billing": False, "message": "This key is not billed (admin key)"})
+    return JSONResponse({
+        "billing": True,
+        "key_name": billing_key.name,
+        "balance": billing_key.balance,
+        "total_charged": billing_key.total_charged,
+        "status": billing_key.status,
+        "group": billing_key.group,
+        "allowed_models": billing_key.allowed_models,
+    })
+
+
+@router.get("/billing/usage", tags=[_TAG_BILLING], dependencies=[Depends(verify_api_key)])
+async def billing_usage(
+    request: Request,
+    start_time: int | None = Query(None, description="Start time in ms"),
+    end_time: int | None = Query(None, description="End time in ms"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+):
+    """Query usage history for the current API key."""
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is None:
+        return JSONResponse({"billing": False, "message": "This key is not billed"})
+
+    from app.control.billing.service import get_billing_service
+    svc = get_billing_service()
+    if svc is None:
+        return JSONResponse({"error": "Billing not available"}, status_code=503)
+
+    logs, total = await svc.get_usage(
+        api_key=billing_key.key,
+        start_time=start_time,
+        end_time=end_time,
+        page=page,
+        page_size=page_size,
+    )
+    summary = await svc.get_usage_summary(api_key=billing_key.key)
+    return JSONResponse({
+        "balance": billing_key.balance,
+        "summary": summary,
+        "items": [log.model_dump() for log in logs],
+        "total": total,
+        "page": page,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Billing helpers (internal)
+# ---------------------------------------------------------------------------
+
+
+def _check_billing_model_access(request: Request, model: str) -> None:
+    """Check if the billing key is allowed to use this model."""
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is None:
+        return  # admin key, no restrictions
+    if not billing_key.can_use_model(model):
+        raise ValidationError(
+            f"Your API key does not have access to model {model!r}",
+            param="model",
+            code="model_access_denied",
+        )
+
+
+def _billing_record_from_result(
+    request: Request,
+    result: dict,
+    model: str,
+    endpoint: str,
+    start_time: float,
+    *,
+    video_seconds: int = 0,
+) -> None:
+    """Fire-and-forget billing record for a non-streaming response with usage dict."""
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is None:
+        return
+
+    from app.control.billing.service import get_billing_service
+    svc = get_billing_service()
+    if svc is None:
+        return
+
+    usage = result.get("usage", {})
+    request_id = result.get("id", "")
+    duration_ms = int((time.monotonic() - start_time) * 1000)
+
+    asyncio.create_task(
+        svc.record_usage(
+            billing_key,
+            model=model,
+            endpoint=endpoint,
+            prompt_tokens=usage.get("prompt_tokens", 0),
+            completion_tokens=usage.get("completion_tokens", 0),
+            video_seconds=video_seconds,
+            request_id=request_id,
+            duration_ms=duration_ms,
+        )
+    )
+
+
+def _billing_record_image(
+    request: Request,
+    model: str,
+    n: int,
+    start_time: float,
+) -> None:
+    """Fire-and-forget billing record for image generation (per-request cost × n)."""
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is None:
+        return
+
+    from app.control.billing.service import get_billing_service
+    svc = get_billing_service()
+    if svc is None:
+        return
+
+    duration_ms = int((time.monotonic() - start_time) * 1000)
+    # Record n separate image generations or one aggregate
+    asyncio.create_task(
+        svc.record_usage(
+            billing_key,
+            model=model,
+            endpoint="image",
+            prompt_tokens=0,
+            completion_tokens=0,
+            request_id="",
+            duration_ms=duration_ms,
+        )
+    )
 
 
 __all__ = ["router"]

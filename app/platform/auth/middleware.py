@@ -2,7 +2,7 @@
 
 import hmac
 
-from fastapi import Header, HTTPException, Query, status
+from fastapi import Header, HTTPException, Query, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.platform.config.snapshot import get_config
@@ -57,25 +57,67 @@ def _extract_bearer(authorization: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 async def verify_api_key(
+    request: Request,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ) -> None:
-    """Validate Bearer token against configured ``api_key``.
+    """Validate Bearer token against configured ``api_key`` or billing keys.
 
     Accepts either ``Authorization: Bearer <key>`` (OpenAI / grok2api style)
     or ``X-API-Key: <key>`` (official Anthropic SDK style) so that agents
     targeting the Anthropic-compatible endpoint work without reconfiguration.
+
+    When billing is enabled, also checks billing API keys and stores the
+    matched key record in ``request.state.billing_key``.
     """
     allowed_keys = _get_keys()
+    token = _extract_bearer(authorization) or x_api_key or None
+
+    # 1. Check global admin API keys (free pass, no billing)
+    if allowed_keys and token:
+        if any(hmac.compare_digest(token, k) for k in allowed_keys):
+            request.state.billing_key = None
+            return
+
+    # 2. Check billing keys if billing is enabled
+    from app.control.billing.service import is_billing_enabled, get_billing_service
+
+    if is_billing_enabled():
+        if token is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or invalid Authorization header.")
+
+        svc = get_billing_service()
+        if svc is None:
+            # Billing enabled but service not ready — fail closed
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Billing service not available.")
+
+        key_record = await svc.authenticate_key(token)
+        if key_record is not None:
+            if not key_record.is_active():
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "API key is disabled or expired.")
+            if key_record.balance <= 0:
+                raise HTTPException(
+                    status.HTTP_402_PAYMENT_REQUIRED,
+                    "Insufficient balance. Please top up your API key.",
+                )
+            request.state.billing_key = key_record
+            return
+
+        # Key not found in billing DB and not in global keys
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API key.")
+
+    # 3. No billing enabled — original behaviour
     if not allowed_keys:
+        request.state.billing_key = None
         return
 
-    token = _extract_bearer(authorization) or x_api_key or None
     if token is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing or invalid Authorization header.")
 
     if not any(hmac.compare_digest(token, k) for k in allowed_keys):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid API key.")
+
+    request.state.billing_key = None
 
 
 async def verify_admin_key(
