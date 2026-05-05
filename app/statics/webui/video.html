@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="webui.video.pageTitle">Grok2API - Video</title>
+  <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-mono/style.css" rel="stylesheet">
+  <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
+</head>
+
+<body class="webui-page">
+  <div id="webui-header" data-active="/webui/video"></div>
+
+  <!-- 滚动公告 -->
+  <style>
+    .marquee-container {
+      width: 100%;
+      overflow: hidden;
+      background: rgba(255, 152, 0, 0.1);
+      color: #e68a00;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 152, 0, 0.2);
+      white-space: nowrap;
+      position: relative;
+    }
+
+    .marquee-content {
+      display: inline-block;
+      padding-left: 100%;
+      animation: marquee 15s linear infinite;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    @keyframes marquee {
+      0% {
+        transform: translate(0, 0);
+      }
+
+      100% {
+        transform: translate(-100%, 0);
+      }
+    }
+
+    .user-info-bar {
+      display: flex;
+      gap: 12px;
+      padding: 12px 16px 0;
+    }
+
+    .user-info-bar input {
+      flex: 1;
+      height: 36px;
+      padding: 0 12px;
+      border: 1px solid var(--border-color, #eaeaea);
+      border-radius: 8px;
+      background: var(--bg-base, #f9f9f9);
+      color: var(--text-primary, #111);
+      font-size: 14px;
+    }
+
+    .user-info-bar input:focus {
+      outline: none;
+      border-color: var(--primary-color, #000);
+    }
+
+    /* 广告位样式 */
+    .webui-video-ad-banner {
+      display: block;
+      margin: 16px 16px 0;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      position: relative;
+      text-decoration: none;
+      background: var(--bg-surface, #fff);
+    }
+
+    .webui-video-ad-banner .ad-image-wrap {
+      position: relative;
+      width: 100%;
+      height: 120px;
+    }
+
+    .webui-video-ad-banner img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transition: opacity 0.2s;
+    }
+
+    html.dark .webui-video-ad-banner {
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+    }
+
+    .webui-video-ad-banner:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    html.dark .webui-video-ad-banner:hover {
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .webui-video-ad-banner:hover img {
+      opacity: 0.9;
+    }
+
+    .webui-video-ad-banner .ad-tag {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      backdrop-filter: blur(4px);
+    }
+
+    .webui-video-ad-banner .ad-text-bar {
+      width: 100%;
+      overflow: hidden;
+      background: rgba(255, 152, 0, 0.1);
+      color: #e68a00;
+      padding: 8px 0;
+      white-space: nowrap;
+      position: relative;
+    }
+
+    html.dark .webui-video-ad-banner .ad-text-bar {
+      background: rgba(255, 152, 0, 0.15);
+      color: #f5a623;
+    }
+
+    /* 两侧对联广告样式 */
+    .webui-side-ad {
+      position: fixed;
+      top: 140px;
+      width: 180px;
+      aspect-ratio: 9/16;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+      transition: transform 0.2s, box-shadow 0.2s;
+      z-index: 100;
+      display: none;
+      /* 默认隐藏，屏幕够宽时显示 */
+    }
+
+    @media (min-width: 1300px) {
+      .webui-side-ad {
+        display: block;
+      }
+    }
+
+    .webui-side-ad.left {
+      left: 20px;
+    }
+
+    .webui-side-ad.right {
+      right: 20px;
+    }
+
+    .webui-side-ad:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .webui-side-ad img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: opacity 0.2s;
+    }
+
+    .webui-side-ad:hover img {
+      opacity: 0.9;
+    }
+
+    .webui-side-ad .ad-tag {
+      position: absolute;
+      bottom: 6px;
+      right: 6px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-size: 10px;
+      backdrop-filter: blur(4px);
+    }
+
+    .webui-side-ad .close-ad {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      background: rgba(0, 0, 0, 0.4);
+      color: #fff;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      backdrop-filter: blur(2px);
+      z-index: 10;
+    }
+
+    .webui-side-ad .close-ad:hover {
+      background: rgba(255, 50, 50, 0.8);
+    }
+  </style>
+  <div class="marquee-container">
+    <div class="marquee-content">📢 公告：视频剪辑专用。生成视频前请务必在下方输入您的岗位和姓名！</div>
+  </div>
+
+  <!-- 左侧对联广告 -->
+  <a href="javascript:void(0)" class="webui-side-ad left" id="sideAdLeft" title="点击了解详情">
+    <div class="close-ad" onclick="event.preventDefault(); document.getElementById('sideAdLeft').style.display='none';">
+      ×</div>
+    <img src="/static/images/img_v3_02117_32bd99e4-0ffc-4cc0-ab62-eb440d24648g.jpg" alt="左侧广告">
+    <div class="ad-tag">广告</div>
+  </a>
+
+  <!-- 右侧对联广告 -->
+  <a href="javascript:void(0)" class="webui-side-ad right" id="sideAdRight" title="点击了解详情">
+    <div class="close-ad"
+      onclick="event.preventDefault(); document.getElementById('sideAdRight').style.display='none';">×</div>
+    <img src="/static/images/img_v3_02117_32bd99e4-0ffc-4cc0-ab62-eb440d24648g.jpg" alt="右侧广告">
+    <div class="ad-tag">广告</div>
+  </a>
+
+  <main class="webui-main webui-video-main">
+    <section class="webui-video-shell">
+
+      <!-- 广告位 -->
+      <a href="javascript:void(0)" class="webui-video-ad-banner" title="点击了解详情">
+        <div class="ad-image-wrap">
+          <img src="/static/images/ad_banner.png" alt="广告展示位" />
+          <div class="ad-tag">广告</div>
+        </div>
+        <div class="ad-text-bar">
+          <div class="marquee-content">🎉 赞助商活动：金刚芭比 —— 李公博： 点击了解详情！</div>
+        </div>
+      </a>
+      <header class="webui-video-head">
+        <h1 class="webui-video-title" data-i18n="webui.video.title">Video</h1>
+      </header>
+
+      <section id="videoFeed" class="webui-video-feed">
+        <div id="videoEmpty" class="webui-video-empty">
+          <div class="webui-video-empty-card">
+            <div class="webui-video-empty-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M23 7l-7 5 7 5V7z" />
+                <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+              </svg>
+            </div>
+            <div class="webui-video-empty-title" data-i18n="webui.video.emptyTitle">从一句提示词生成视频</div>
+            <div class="webui-video-empty-text" data-i18n="webui.video.emptyText">输入描述并点击生成，视频将在这里显示。</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="webui-video-composer">
+        <div class="webui-video-input-shell">
+          <div class="user-info-bar">
+            <input type="text" id="userRole" placeholder="请输入您的岗位 (必填)" />
+            <input type="text" id="userName" placeholder="请输入您的姓名 (必填)" />
+          </div>
+          <input type="file" id="refImageInput" accept="image/*" multiple hidden />
+          <div id="refImagePreview" class="webui-video-ref-preview" hidden></div>
+          <textarea id="promptInput" class="input webui-textarea" placeholder="描述你想生成的视频内容，Enter 生成，Shift+Enter 换行"
+            data-i18n-placeholder="webui.video.promptPlaceholder"></textarea>
+          <div class="webui-video-toolbar">
+            <div class="webui-video-controls">
+              <label class="webui-video-select-wrap">
+                <span class="webui-video-select-label" data-i18n="webui.video.sizeLabel">画幅</span>
+                <select id="sizeSelect" class="input webui-video-select">
+                  <option value="720x1280" selected>9:16</option>
+                  <option value="1280x720">16:9</option>
+                  <option value="1024x1024">1:1</option>
+                </select>
+              </label>
+              <label class="webui-video-select-wrap">
+                <span class="webui-video-select-label" data-i18n="webui.video.durationLabel">时长</span>
+                <select id="secondsSelect" class="input webui-video-select">
+                  <option value="6" selected>6s</option>
+                  <option value="10">10s</option>
+                  <option value="12">12s</option>
+                  <option value="16">16s</option>
+                  <option value="20">20s</option>
+                  <option value="30">30s</option>
+                </select>
+              </label>
+              <label class="webui-video-select-wrap">
+                <span class="webui-video-select-label" data-i18n="webui.video.modelLabel">模型</span>
+                <select id="videoModelSelect" class="input webui-video-select">
+                  <option value="grok-imagine-video" selected>Grok Imagine</option>
+                  <option value="grok-4.3-video">Grok 4.3</option>
+                  <option value="grok-4.3-video-heavy">Grok 4.3 Heavy</option>
+                </select>
+              </label>
+              <label class="webui-video-select-wrap">
+                <span class="webui-video-select-label" data-i18n="webui.video.countLabel">数量</span>
+                <select id="countSelect" class="input webui-video-select">
+                  <option value="1" selected>1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                </select>
+              </label>
+              <div id="presetToggle" class="webui-masonry-toggle" role="tablist" data-kind="preset">
+                <button type="button" class="webui-masonry-toggle-btn is-active" data-value="custom"
+                  data-i18n="webui.video.presetCustom">自定义</button>
+                <button type="button" class="webui-masonry-toggle-btn" data-value="fun"
+                  data-i18n="webui.video.presetFun">趣味</button>
+                <button type="button" class="webui-masonry-toggle-btn" data-value="spicy"
+                  data-i18n="webui.video.presetSpicy">大胆</button>
+              </div>
+            </div>
+            <div class="webui-video-actions">
+              <button id="refImageBtn" class="webui-icon-btn webui-video-ref-btn" type="button"
+                aria-label="Reference image" title="参考图">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+              </button>
+              <button id="sendBtn" class="webui-primary-btn webui-video-send" type="button"
+                data-i18n-aria-label="webui.video.generate" data-i18n-title="webui.video.generate">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v14"></path>
+                  <path d="m6 11 6-6 6 6"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- 下载时弹出的恶搞广告框 -->
+  <div id="downloadAdOverlay"
+    style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.7); z-index: 10000; justify-content: center; align-items: center; backdrop-filter: blur(5px);">
+    <div
+      style="background: var(--bg-surface, #fff); padding: 24px; border-radius: 16px; box-shadow: 0 20px 50px rgba(0,0,0,0.4); max-width: 360px; width: 90%; text-align: center; animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);">
+      <style>
+        @keyframes popIn {
+          0% {
+            opacity: 0;
+            transform: scale(0.8);
+          }
+
+          100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+      </style>
+      <h2 style="margin: 0 0 16px 0; font-size: 22px; color: var(--text-primary, #111);">🚀 视频正为您下载！</h2>
+      <img src="/static/images/img_v3_02117_32bd99e4-0ffc-4cc0-ab62-eb440d24648g.jpg" alt="恶搞广告"
+        style="width: 100%; border-radius: 12px; margin-bottom: 16px; object-fit: cover;" />
+      <p
+        style="margin: 0 0 24px 0; font-size: 15px; color: var(--text-secondary, #666); line-height: 1.6; font-weight: bold;">
+        “惊不惊喜？意不意外？想丝滑下载？乖乖看我几秒钟广告吧！略略略~ 😜”
+      </p>
+      <button class="webui-primary-btn"
+        style="width: 100%; padding: 12px; font-size: 15px; font-weight: bold; border-radius: 8px; justify-content: center; background-color: #ff4757; border: none; color: white; cursor: pointer;"
+        onclick="document.getElementById('downloadAdOverlay').style.display='none'">忍痛关闭并滚去干活</button>
+    </div>
+  </div>
+
+  <script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
+  <script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
+  <script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
+  <script src="/static/js/webui-header.js?v={{APP_VERSION}}"></script>
+  <script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
+  <script src="/static/js/webui/video.js?v={{APP_VERSION}}&update=1"></script>
+</body>
+
+</html>

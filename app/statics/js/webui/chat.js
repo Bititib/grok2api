@@ -784,6 +784,13 @@
     return selected && selected.capability ? selected.capability : 'chat';
   }
 
+  function updateImageSizeVisibility() {
+    const wrap = document.getElementById('imageSizeWrap');
+    if (!wrap) return;
+    const cap = currentModelCapability();
+    wrap.hidden = cap !== 'image' && cap !== 'image_edit';
+  }
+
   async function fileToDataUrl(file) {
     return await new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1369,13 +1376,21 @@
     messages
       .filter((message) => message && (message.role === 'user' || message.role === 'assistant'))
       .forEach((message) => outgoing.push(message));
-    return {
+    const payload = {
       model: modelSelect.value || PREFERRED_MODEL,
       messages: outgoing,
       stream: true,
       temperature: 0.8,
       top_p: 0.95,
     };
+    const capability = currentModelCapability();
+    if (capability === 'image' || capability === 'image_edit') {
+      const sizeEl = document.getElementById('imageSizeSelect');
+      payload.image_config = {
+        size: sizeEl ? sizeEl.value : '1024x1024',
+      };
+    }
+    return payload;
   }
 
   async function loadModels() {
@@ -1396,6 +1411,7 @@
       modelSelect.appendChild(opt);
     });
     modelSelect.value = ids.includes(PREFERRED_MODEL) ? PREFERRED_MODEL : (ids[0] || PREFERRED_MODEL);
+    updateImageSizeVisibility();
   }
 
   async function sendMessage() {
@@ -1602,7 +1618,10 @@
     }
     sendMessage();
   });
-  modelSelect.addEventListener('change', syncCurrentSession);
+  modelSelect.addEventListener('change', () => {
+    syncCurrentSession();
+    updateImageSizeVisibility();
+  });
   systemInput?.addEventListener('change', syncCurrentSession);
   uploadBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', async () => {
@@ -1637,6 +1656,69 @@
       sendMessage();
     }
   });
+
+  /* --- Paste upload: Ctrl+V / Cmd+V image from clipboard --- */
+  promptInput.addEventListener('paste', async (event) => {
+    const items = event.clipboardData && event.clipboardData.items;
+    if (!items) return;
+    const files = [];
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (!files.length) return;
+    event.preventDefault();
+    try {
+      const prepared = await preparePendingFiles(files);
+      pendingFiles = pendingFiles.concat(prepared);
+      renderUploadMeta();
+    } catch (error) {
+      toast(error.message || String(error), 'error');
+    }
+  });
+
+  /* --- Drag-and-drop upload --- */
+  const composerEl = document.querySelector('.webui-composer');
+  if (composerEl) {
+    let dragCounter = 0;
+
+    composerEl.addEventListener('dragenter', (event) => {
+      event.preventDefault();
+      dragCounter++;
+      composerEl.classList.add('drag-over');
+    });
+
+    composerEl.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    });
+
+    composerEl.addEventListener('dragleave', (event) => {
+      event.preventDefault();
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        composerEl.classList.remove('drag-over');
+      }
+    });
+
+    composerEl.addEventListener('drop', async (event) => {
+      event.preventDefault();
+      dragCounter = 0;
+      composerEl.classList.remove('drag-over');
+      const files = event.dataTransfer && event.dataTransfer.files;
+      if (!files || !files.length) return;
+      try {
+        const prepared = await preparePendingFiles(files);
+        pendingFiles = pendingFiles.concat(prepared);
+        renderUploadMeta();
+      } catch (error) {
+        toast(error.message || String(error), 'error');
+      }
+    });
+  }
 
   boot().catch((error) => {
     console.error('webui chat boot failed', error);

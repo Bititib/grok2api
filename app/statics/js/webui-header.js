@@ -176,6 +176,7 @@ window.renderWebuiHeader = async function renderWebuiHeader() {
           <nav class="admin-nav">
             <a href="/webui/chat" class="admin-nav-link" data-nav="/webui/chat" data-i18n="webui.header.chat">聊天</a>
             <a href="/webui/masonry" class="admin-nav-link" data-nav="/webui/masonry" data-i18n="webui.header.masonry">Masonry</a>
+            <a href="/webui/video" class="admin-nav-link" data-nav="/webui/video" data-i18n="webui.header.video">Video</a>
             <a href="/webui/chatkit" class="admin-nav-link" data-nav="/webui/chatkit" data-i18n="webui.header.chatkit">ChatKit</a>
           </nav>
           <div class="admin-header-right">

@@ -58,6 +58,15 @@
               <label class="webui-sendbar-model">
                 <select id="modelSelect" class="input" data-i18n-aria-label="webui.chat.modelLabel"></select>
               </label>
+              <label id="imageSizeWrap" class="webui-sendbar-model" hidden>
+                <select id="imageSizeSelect" class="input" title="Image Size">
+                  <option value="1024x1024">1:1</option>
+                  <option value="720x1280">9:16</option>
+                  <option value="1280x720">16:9</option>
+                  <option value="1024x1792">2:3</option>
+                  <option value="1792x1024">3:2</option>
+                </select>
+              </label>
               <button id="sendBtn" class="webui-primary-btn" type="button" data-i18n="webui.chat.send">发送</button>
             </div>
           </div>

@@ -20,6 +20,7 @@
     "header": {
       "chat": "Chat",
       "masonry": "Masonry",
+      "video": "Video",
       "chatkit": "ChatKit"
     },
     "chat": {
@@ -122,6 +123,32 @@
         "enterPrompt": "プロンプトを入力してください",
         "requestFailed": "リクエストに失敗しました",
         "initFailed": "Masonry ページの初期化に失敗しました"
+      }
+    },
+    "video": {
+      "pageTitle": "Grok2API - Video",
+      "title": "Video",
+      "sizeLabel": "画面比",
+      "durationLabel": "長さ",
+      "presetCustom": "カスタム",
+      "presetFun": "ファン",
+      "presetNormal": "ノーマル",
+      "presetSpicy": "スパイシー",
+      "promptPlaceholder": "生成したい動画を説明してください。Enter で生成、Shift+Enter で改行します。",
+      "generate": "生成",
+      "stop": "停止",
+      "openVideo": "動画を開く",
+      "statusGenerating": "生成中",
+      "statusSuccess": "生成成功",
+      "statusFailed": "生成失敗",
+      "statusStopped": "停止済み",
+      "emptyTitle": "プロンプトから動画を生成",
+      "emptyText": "説明を入力して生成をクリックすると、動画がここに表示されます。",
+      "errors": {
+        "enterPrompt": "プロンプトを入力してください",
+        "requestFailed": "リクエストに失敗しました",
+        "connectionFailed": "接続に失敗しました",
+        "initFailed": "動画ページの初期化に失敗しました"
       }
     }
   },

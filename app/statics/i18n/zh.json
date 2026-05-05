@@ -39,6 +39,7 @@
     "header": {
       "chat": "聊天",
       "masonry": "瀑布流",
+      "video": "视频",
       "chatkit": "ChatKit"
     },
     "chat": {
@@ -142,6 +143,35 @@
         "enterPrompt": "请输入提示词",
         "requestFailed": "请求失败",
         "initFailed": "瀑布流页面初始化失败"
+      }
+    },
+    "video": {
+      "pageTitle": "Grok2API - Video",
+      "title": "Video",
+      "sizeLabel": "画幅",
+      "durationLabel": "时长",
+      "modelLabel": "模型",
+      "presetCustom": "自定义",
+      "presetFun": "趣味",
+      "presetNormal": "正常",
+      "presetSpicy": "大胆",
+      "promptPlaceholder": "描述你想生成的视频内容，Enter 生成，Shift+Enter 换行",
+      "generate": "生成",
+      "stop": "停止",
+      "openVideo": "打开视频",
+      "referenceImage": "参考图",
+      "referenceImageRemove": "移除参考图",
+      "statusGenerating": "正在生成",
+      "statusSuccess": "生成成功",
+      "statusFailed": "生成失败",
+      "statusStopped": "已停止",
+      "emptyTitle": "从一句提示词生成视频",
+      "emptyText": "输入描述并点击生成，视频将在这里显示。",
+      "errors": {
+        "enterPrompt": "请输入提示词",
+        "requestFailed": "请求失败",
+        "connectionFailed": "连接失败",
+        "initFailed": "视频页面初始化失败"
       }
     }
   },

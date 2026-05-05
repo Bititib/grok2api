@@ -39,6 +39,7 @@
     "header": {
       "chat": "Chat",
       "masonry": "Masonry",
+      "video": "Video",
       "chatkit": "ChatKit"
     },
     "chat": {
@@ -142,6 +143,35 @@
         "enterPrompt": "Please enter a prompt",
         "requestFailed": "Request failed",
         "initFailed": "Masonry page initialization failed"
+      }
+    },
+    "video": {
+      "pageTitle": "Grok2API - Video",
+      "title": "Video",
+      "sizeLabel": "Aspect",
+      "durationLabel": "Duration",
+      "modelLabel": "Model",
+      "presetCustom": "Custom",
+      "presetFun": "Fun",
+      "presetNormal": "Normal",
+      "presetSpicy": "Spicy",
+      "promptPlaceholder": "Describe the video you want. Press Enter to generate and Shift+Enter for a new line.",
+      "generate": "Generate",
+      "stop": "Stop",
+      "openVideo": "Open video",
+      "referenceImage": "Reference image",
+      "referenceImageRemove": "Remove reference image",
+      "statusGenerating": "Generating",
+      "statusSuccess": "Success",
+      "statusFailed": "Failed",
+      "statusStopped": "Stopped",
+      "emptyTitle": "Generate video from a prompt",
+      "emptyText": "Enter a description and click generate. Your video will appear here.",
+      "errors": {
+        "enterPrompt": "Please enter a prompt",
+        "requestFailed": "Request failed",
+        "connectionFailed": "Connection failed",
+        "initFailed": "Video page initialization failed"
       }
     }
   },

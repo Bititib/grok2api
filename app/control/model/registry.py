@@ -36,6 +36,12 @@ MODELS: tuple[ModelSpec, ...] = (
     # Super+（basic 池不支持此模式）
     ModelSpec("grok-4.3-beta",                          ModeId.GROK_4_3, Tier.SUPER, Capability.CHAT,       True, "Grok 4.3 Beta"),
 
+    # === grok-4.3 Video ======================================================
+    # grok-4.3 supports longer video (up to 30s) via the same videoGen pipeline.
+    # Uses grok-420-computer-use-sa modeId; requires super/heavy accounts.
+    ModelSpec("grok-4.3-video",                         ModeId.GROK_4_3, Tier.SUPER, Capability.VIDEO,      True, "Grok 4.3 Video"),
+    ModelSpec("grok-4.3-video-heavy",                   ModeId.GROK_4_3, Tier.HEAVY, Capability.VIDEO,      True, "Grok 4.3 Video Heavy"),
+
     # === Image ==============================================================
 
     # Basic+
