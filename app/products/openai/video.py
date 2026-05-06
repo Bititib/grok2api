@@ -23,6 +23,7 @@ from app.platform.logging.logger import logger
 from app.platform.runtime.clock import now_s
 from app.platform.storage import video_files_dir
 from app.control.account.enums import FeedbackKind
+from app.control.model.enums import ModeId
 from app.control.model import registry as model_registry
 from app.control.model.registry import resolve as resolve_model
 from app.dataplane.proxy import get_proxy_runtime
@@ -141,6 +142,168 @@ def _progress_reason(progress: int) -> str:
     return f"视频正在生成 {max(0, min(100, int(progress)))}%"
 
 
+# ---------------------------------------------------------------------------
+# Prompt splitter for multi-segment generation
+# ---------------------------------------------------------------------------
+import re as _re
+
+# Matches timestamp patterns like:
+#   镜头 1 (0-0.5秒)   Shot 2 (0.5-2.5s)   · 镜头 3 (2.5-4.5秒)
+_SHOT_RE = _re.compile(
+    r'(?:^|\n)\s*[·•●\-]?\s*(?:镜头|shot|clip)\s*\d+\s*'
+    r'\((\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(?:秒|s|seconds?)?\)',
+    _re.IGNORECASE,
+)
+
+# Lines that look like shot/scene descriptions (bullet points, numbered items)
+_BODY_LINE_RE = _re.compile(
+    r'^\s*(?:[·•●\-]\s*|(?:镜头|shot|clip|scene)\s*\d|(?:\d+[\.\)、])\s)',
+    _re.IGNORECASE,
+)
+
+
+def _split_prompt_by_time(
+    prompt: str,
+    segments: list[int],
+) -> list[str]:
+    """Split a prompt into per-segment sub-prompts for multi-segment video.
+
+    Supports two modes:
+    1. Timestamped storyboard: shots with (A-Bs) markers are distributed
+       by time range.
+    2. Plain multi-line: paragraphs/lines are distributed evenly across
+       segments, with the header (overall style) prepended to each.
+
+    If only one segment, returns the original prompt unchanged.
+    """
+    if len(segments) <= 1:
+        return [prompt]
+
+    # --- Mode 1: timestamped storyboard ---
+    shots: list[tuple[float, float, int]] = []
+    for m in _SHOT_RE.finditer(prompt):
+        try:
+            t_start = float(m.group(1))
+            t_end = float(m.group(2))
+            shots.append((t_start, t_end, m.start()))
+        except (ValueError, TypeError):
+            continue
+
+    if shots:
+        return _split_by_timestamps(prompt, segments, shots)
+
+    # --- Mode 2: plain paragraph split ---
+    return _split_by_paragraphs(prompt, segments)
+
+
+def _split_by_timestamps(
+    prompt: str,
+    segments: list[int],
+    shots: list[tuple[float, float, int]],
+) -> list[str]:
+    """Distribute shots to segments by their time ranges."""
+    shots.sort(key=lambda s: s[0])
+
+    first_shot_pos = min(s[2] for s in shots)
+    header = prompt[:first_shot_pos].rstrip()
+
+    shot_positions = sorted(set(s[2] for s in shots))
+    shot_texts: list[tuple[float, float, str]] = []
+    for t_start, t_end, pos in shots:
+        current_idx = shot_positions.index(pos)
+        if current_idx + 1 < len(shot_positions):
+            text = prompt[pos:shot_positions[current_idx + 1]].rstrip()
+        else:
+            text = prompt[pos:].rstrip()
+        shot_texts.append((t_start, t_end, text))
+
+    result: list[str] = []
+    elapsed = 0
+    for seg_len in segments:
+        seg_start = float(elapsed)
+        seg_end = float(elapsed + seg_len)
+        relevant = [
+            text for t_start, t_end, text in shot_texts
+            if t_start < seg_end and t_end > seg_start
+        ]
+        if relevant:
+            result.append(header + "\n" + "\n".join(relevant))
+        else:
+            result.append(header + "\n继续上一段的内容，自然延伸画面。")
+        elapsed += seg_len
+    return result
+
+
+def _split_by_paragraphs(
+    prompt: str,
+    segments: list[int],
+) -> list[str]:
+    """Split a plain prompt by paragraphs/lines and distribute evenly.
+
+    Identifies a 'header' (overall style description before the first
+    bullet/numbered line) and distributes the remaining body lines
+    across segments. Each segment gets: header + its body portion.
+    """
+    lines = [l for l in prompt.split("\n") if l.strip()]
+    if not lines:
+        return [prompt] * len(segments)
+
+    # Find header vs body boundary
+    header_lines: list[str] = []
+    body_lines: list[str] = []
+    found_body = False
+    for line in lines:
+        if not found_body and _BODY_LINE_RE.match(line):
+            found_body = True
+        if found_body:
+            body_lines.append(line)
+        else:
+            header_lines.append(line)
+
+    # If no body lines detected, try splitting by double-newline paragraphs
+    if not body_lines:
+        paragraphs = [p.strip() for p in _re.split(r'\n\s*\n', prompt) if p.strip()]
+        if len(paragraphs) >= len(segments) + 1:
+            # First paragraph = header, rest = body
+            header = paragraphs[0]
+            body_parts = paragraphs[1:]
+        elif len(paragraphs) >= len(segments):
+            # All are body, no separate header
+            header = ""
+            body_parts = paragraphs
+        else:
+            # Not enough to split, use full prompt for all
+            return [prompt] * len(segments)
+
+        return _distribute_parts(header, body_parts, len(segments))
+
+    header = "\n".join(header_lines)
+    return _distribute_parts(header, body_lines, len(segments))
+
+
+def _distribute_parts(
+    header: str,
+    body_parts: list[str],
+    n_segments: int,
+) -> list[str]:
+    """Evenly distribute body_parts across n_segments, prepend header."""
+    if not body_parts:
+        return [header or "继续上一段的内容，自然延伸画面。"] * n_segments
+
+    result: list[str] = []
+    total = len(body_parts)
+    for i in range(n_segments):
+        start_idx = (total * i) // n_segments
+        end_idx = (total * (i + 1)) // n_segments
+        chunk = body_parts[start_idx:end_idx]
+        if chunk:
+            seg_prompt = (header + "\n" + "\n".join(chunk)).strip() if header else "\n".join(chunk)
+        else:
+            seg_prompt = (header + "\n继续上一段的内容，自然延伸画面。").strip() if header else "继续上一段的内容，自然延伸画面。"
+        result.append(seg_prompt)
+    return result
+
+
 def _coerce_seconds(value: str | int | None) -> int:
     if value is None:
         return 6
@@ -213,6 +376,7 @@ def _video_create_payload(
     resolution_name: str,
     video_length: int,
     preset: str,
+    mode_id: str | None = None,
     reference_content_urls: list[str] | None = None,
     file_attachments: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -236,6 +400,8 @@ def _video_create_payload(
             },
         },
     }
+    if mode_id:
+        payload["modeId"] = mode_id
     if file_attachments:
         payload["fileAttachments"] = file_attachments
     return payload
@@ -248,6 +414,7 @@ def _video_extend_start_time(seconds: int) -> float:
 def _video_extend_payload(
     *,
     prompt: str,
+    original_prompt: str,
     parent_post_id: str,
     extend_post_id: str,
     aspect_ratio: str,
@@ -255,8 +422,9 @@ def _video_extend_payload(
     video_length: int,
     preset: str,
     start_time_s: float,
+    mode_id: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "temporary": True,
         "modelName": _VIDEO_MODEL_NAME,
         "message": _build_message(prompt, preset),
@@ -271,7 +439,7 @@ def _video_extend_payload(
                         "videoExtensionStartTime": start_time_s,
                         "extendPostId": extend_post_id,
                         "stitchWithExtendPostId": True,
-                        "originalPrompt": prompt,
+                        "originalPrompt": original_prompt,
                         "originalPostId": parent_post_id,
                         "originalRefType": _VIDEO_EXTENSION_REF_TYPE,
                         "mode": preset,
@@ -285,6 +453,9 @@ def _video_extend_payload(
             },
         },
     }
+    if mode_id:
+        payload["modeId"] = mode_id
+    return payload
 
 
 def _extract_streaming_video_response(data: dict[str, Any]) -> dict[str, Any] | None:
@@ -333,15 +504,28 @@ async def _stream_video_request(
     kwargs = build_session_kwargs(lease=lease)
 
     async with ResettableSession(**kwargs) as session:
+        request_data = orjson.dumps(payload)
+        logger.info(
+            "video upstream request: url={} payload_size={} payload={}",
+            CHAT, len(request_data), request_data.decode("utf-8", "replace")[:500],
+        )
         response = await session.post(
             CHAT,
             headers=headers,
-            data=orjson.dumps(payload),
+            data=request_data,
             timeout=timeout_s,
             stream=True,
         )
         if response.status_code != 200:
-            body = response.content.decode("utf-8", "replace")[:300]
+            # In stream mode, .content may be empty; read explicitly.
+            try:
+                body = (await response.aread()).decode("utf-8", "replace")[:500]
+            except Exception:
+                body = response.content.decode("utf-8", "replace")[:500] if response.content else "(empty)"
+            logger.error(
+                "video upstream error: status={} body={}",
+                response.status_code, body,
+            )
             raise UpstreamError(
                 f"Video upstream returned {response.status_code}",
                 status=response.status_code,
@@ -589,17 +773,27 @@ async def _generate_video_with_token(
         if not parent_post_id:
             raise UpstreamError("Video create-post returned no post id")
 
-    native_max = _GROK_4_3_NATIVE_MAX_SECONDS if model in _GROK_4_3_VIDEO_MODELS else 10
-    segments = _build_segment_lengths(seconds, native_max=native_max)
+    # All video models use 10s segments; longer videos are stitched via extend.
+    # grok-4.3-video was assumed to support 30s natively but upstream rejects it.
+    segments = _build_segment_lengths(seconds, native_max=10)
     total_segments = len(segments)
+
+    # Split storyboard prompts by time range so each segment gets its own shots.
+    segment_prompts = _split_prompt_by_time(prompt, segments)
+    logger.info(
+        "video generation plan: model={} seconds={} segments={} prompt_split={}",
+        model, seconds, segments,
+        len(set(segment_prompts)) > 1,  # True if prompt was actually split
+    )
     artifact: _VideoArtifact | None = None
     extend_post_id = parent_post_id
     elapsed_seconds = 0
 
     for index, segment_length in enumerate(segments):
+        seg_prompt = segment_prompts[index]
         if index == 0:
             payload = _video_create_payload(
-                prompt=prompt,
+                prompt=seg_prompt,
                 parent_post_id=parent_post_id,
                 aspect_ratio=aspect_ratio,
                 resolution_name=resolution_name,
@@ -611,7 +805,8 @@ async def _generate_video_with_token(
             referer = "https://grok.com/imagine"
         else:
             payload = _video_extend_payload(
-                prompt=prompt,
+                prompt=seg_prompt,
+                original_prompt=prompt,
                 parent_post_id=parent_post_id,
                 extend_post_id=extend_post_id,
                 aspect_ratio=aspect_ratio,
@@ -1096,7 +1291,7 @@ async def completions(
                 seconds=seconds,
                 preset=resolved_preset,
                 timeout_s=timeout_s,
-                input_reference=input_reference,
+                input_references=[input_reference] if input_reference else None,
                 progress_cb=progress_cb,
             )
             file_id = hashlib.sha1(artifact.video_url.encode("utf-8")).hexdigest()[:32]
