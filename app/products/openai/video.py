@@ -133,11 +133,18 @@ _VIDEO_JOBS: dict[str, _VideoJob] = {}
 _VIDEO_JOBS_LOCK = asyncio.Lock()
 
 
-def _build_message(prompt: str, preset: str, *, reference_content_urls: list[str] | None = None) -> str:
+def _build_message(
+    prompt: str,
+    preset: str,
+    *,
+    reference_content_urls: list[str] | None = None,
+    num_references: int = 0,
+) -> str:
     message = f"{prompt} {_PRESET_FLAGS.get(preset, '--mode=custom')}".strip()
     if reference_content_urls:
-        urls_prefix = "  ".join(reference_content_urls)
-        return f"{urls_prefix}  {message}"
+        # Match official grok.com format: @Image 1  @Image 2  prompt
+        refs = "  ".join(f"@Image {i+1}" for i in range(len(reference_content_urls)))
+        return f"{refs}  {message}"
     return message
 
 
@@ -761,20 +768,21 @@ async def _generate_video_with_token(
     if input_references:
         for ref in input_references:
             references.append(await _prepare_video_reference(token, ref))
-        parent_post_id = references[0].post_id
-    else:
-        post = await create_media_post(
-            token,
-            media_type=_VIDEO_MEDIA_TYPE,
-            prompt=prompt,
-            referer="https://grok.com/imagine",
-        )
-        post_data = post.get("post")
-        if not isinstance(post_data, dict):
-            raise UpstreamError("Video create-post returned no post payload")
-        parent_post_id = str(post_data.get("id") or "").strip()
-        if not parent_post_id:
-            raise UpstreamError("Video create-post returned no post id")
+
+    # Always create a conversation parent post (like the official grok.com does)
+    post = await create_media_post(
+        token,
+        media_type=_VIDEO_MEDIA_TYPE,
+        prompt=prompt,
+        referer="https://grok.com/imagine",
+    )
+    post_data = post.get("post")
+    if not isinstance(post_data, dict):
+        raise UpstreamError("create_media_post returned no post payload")
+    parent_post_id = str(post_data.get("id") or "").strip()
+    if not parent_post_id:
+        raise UpstreamError("create_media_post returned no post id")
+    logger.info("created video post: parent_post_id={}", parent_post_id)
 
     # All video models use 10s segments; longer videos are stitched via extend.
     # grok-4.3-video was assumed to support 30s natively but upstream rejects it.
