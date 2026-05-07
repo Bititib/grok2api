@@ -48,7 +48,7 @@ from .chat import _fail_sync, _quota_sync, _feedback_kind
 
 _IMAGE_MEDIA_TYPE = "MEDIA_POST_TYPE_IMAGE"
 _VIDEO_MEDIA_TYPE = "MEDIA_POST_TYPE_VIDEO"
-_VIDEO_MODEL_NAME = "grok-3"
+_VIDEO_MODEL_NAME = "imagine-video-gen"
 _VIDEO_QUALITY = "standard"
 _VIDEO_OBJECT = "video"
 _VIDEO_JOB_TTL_S = 3600
@@ -85,6 +85,7 @@ class _VideoArtifact:
 class _VideoReference:
     content_url: str
     post_id: str
+    file_id: str = ""
 
 
 @dataclass(slots=True)
@@ -137,15 +138,16 @@ def _build_message(
     prompt: str,
     preset: str,
     *,
-    reference_content_urls: list[str] | None = None,
-    num_references: int = 0,
+    reference_file_ids: list[str] | None = None,
 ) -> str:
-    message = f"{prompt} {_PRESET_FLAGS.get(preset, '--mode=custom')}".strip()
-    if reference_content_urls:
-        # Match official grok.com format: @Image 1  @Image 2  prompt
-        refs = "  ".join(f"@Image {i+1}" for i in range(len(reference_content_urls)))
-        return f"{refs}  {message}"
-    return message
+    flag = _PRESET_FLAGS.get(preset, "--mode=custom")
+    if reference_file_ids:
+        # Official format: @{file_id} for ALL reference images.
+        # The model requires every file_id to be @-referenced to treat them as
+        # character references (not just conversation context).
+        refs = " ".join(f"@{fid}" for fid in reference_file_ids)
+        return f"{refs} {prompt} {flag}".strip()
+    return f"{prompt} {flag}".strip()
 
 
 def _progress_reason(progress: int) -> str:
@@ -387,33 +389,46 @@ def _video_create_payload(
     video_length: int,
     preset: str,
     mode_id: str | None = None,
+    reference_file_ids: list[str] | None = None,
     reference_content_urls: list[str] | None = None,
-    file_attachments: list[str] | None = None,
+    root_post_id: str | None = None,
 ) -> dict[str, Any]:
-    payload = {
+    # parentPostId: use root_post_id (VIDEO anchor) when references exist.
+    # null → 400; IMAGE post → only first char; VIDEO post → all imageReferences processed.
+    effective_parent: str | None = root_post_id if (reference_content_urls and root_post_id) else parent_post_id
+
+    video_config: dict[str, Any] = {
+        "parentPostId": effective_parent,
+        "aspectRatio": aspect_ratio,
+        "videoLength": video_length,
+        "resolutionName": resolution_name,
+    }
+    if reference_content_urls:
+        video_config["imageReferences"] = reference_content_urls
+        video_config["isReferenceToVideo"] = True
+        video_config["isVideoEdit"] = False
+        video_config["isRootUserUploaded"] = True
+
+    payload: dict[str, Any] = {
         "temporary": True,
         "modelName": _VIDEO_MODEL_NAME,
-        "message": _build_message(prompt, preset, reference_content_urls=reference_content_urls),
+        "message": _build_message(prompt, preset, reference_file_ids=reference_file_ids),
         "toolOverrides": {"videoGen": True},
         "enableSideBySide": True,
         "responseMetadata": {
             "experiments": [],
             "modelConfigOverride": {
                 "modelMap": {
-                    "videoGenModelConfig": {
-                        "parentPostId": parent_post_id,
-                        "aspectRatio": aspect_ratio,
-                        "videoLength": video_length,
-                        "resolutionName": resolution_name,
-                    }
+                    "videoGenModelConfig": video_config,
                 }
             },
         },
     }
+    # Official: fileAttachments = ALL file_ids at the top level of the payload
+    if reference_file_ids:
+        payload["fileAttachments"] = reference_file_ids
     if mode_id:
         payload["modeId"] = mode_id
-    if file_attachments:
-        payload["fileAttachments"] = file_attachments
     return payload
 
 
@@ -517,7 +532,7 @@ async def _stream_video_request(
         request_data = orjson.dumps(payload)
         logger.info(
             "video upstream request: url={} payload_size={} payload={}",
-            CHAT, len(request_data), request_data.decode("utf-8", "replace")[:500],
+            CHAT, len(request_data), request_data.decode("utf-8", "replace")[:2000],
         )
         response = await session.post(
             CHAT,
@@ -570,12 +585,19 @@ async def _prepare_video_reference(token: str, input_reference: dict[str, Any]) 
     if not image_input:
         raise ValidationError("input_reference.image_url is required", param="input_reference.image_url")
 
+    ref_file_id = ""
     if _is_upstream_asset_content_url(image_input):
         content_url = image_input
+        # Extract file_id from URL: /users/{user_id}/{file_id}/content[?...]
+        path_part = image_input.split("?")[0]
+        parts = path_part.rstrip("/").split("/")
+        if parts and parts[-1] == "content" and len(parts) >= 2:
+            ref_file_id = parts[-2]
     else:
         try:
             uploaded_file_id, uploaded_file_uri = await upload_from_input(token, image_input)
             content_url = resolve_uploaded_asset_reference(token, uploaded_file_id, uploaded_file_uri)
+            ref_file_id = uploaded_file_id
         except ValidationError as exc:
             raise ValidationError(exc.message, param="input_reference.image_url") from exc
         except UpstreamError as exc:
@@ -587,20 +609,10 @@ async def _prepare_video_reference(token: str, input_reference: dict[str, Any]) 
         except Exception as exc:
             raise UpstreamError(f"Video input reference upload failed: {exc}") from exc
 
-    post = await create_media_post(
-        token,
-        media_type=_IMAGE_MEDIA_TYPE,
-        media_url=content_url,
-        prompt="",
-        referer="https://grok.com/imagine",
-    )
-    post_data = post.get("post")
-    if not isinstance(post_data, dict):
-        raise UpstreamError("Video image reference create-post returned no post payload")
-    post_id = str(post_data.get("id") or "").strip()
-    if not post_id:
-        raise UpstreamError("Video image reference create-post returned no post id")
-    return _VideoReference(content_url=content_url, post_id=post_id)
+    # Official grok.com does NOT create a media post per reference image.
+    # All references are passed via fileAttachments + imageReferences in the payload.
+    logger.info("prepared video reference: file_id={}", ref_file_id)
+    return _VideoReference(content_url=content_url, post_id="", file_id=ref_file_id)
 
 
 async def _collect_video_segment(
@@ -768,21 +780,35 @@ async def _generate_video_with_token(
     if input_references:
         for ref in input_references:
             references.append(await _prepare_video_reference(token, ref))
-
-    # Always create a conversation parent post (like the official grok.com does)
-    post = await create_media_post(
-        token,
-        media_type=_VIDEO_MEDIA_TYPE,
-        prompt=prompt,
-        referer="https://grok.com/imagine",
-    )
-    post_data = post.get("post")
-    if not isinstance(post_data, dict):
-        raise UpstreamError("create_media_post returned no post payload")
-    parent_post_id = str(post_data.get("id") or "").strip()
-    if not parent_post_id:
-        raise UpstreamError("create_media_post returned no post id")
-    logger.info("created video post: parent_post_id={}", parent_post_id)
+        # Strategy: create a VIDEO-type media post as parentPostId anchor.
+        # parentPostId=null → 400 (server needs anchor for our API access)
+        # parentPostId=IMAGE_post → only first image character appears
+        # parentPostId=VIDEO_post → hopefully all imageReferences are processed equally
+        video_anchor_post = await create_media_post(
+            token,
+            media_type=_VIDEO_MEDIA_TYPE,
+            prompt=prompt,
+            referer="https://grok.com/imagine",
+        )
+        anchor_data = video_anchor_post.get("post")
+        if isinstance(anchor_data, dict):
+            parent_post_id = str(anchor_data.get("id") or "").strip()
+        else:
+            parent_post_id = ""
+    else:
+        post = await create_media_post(
+            token,
+            media_type=_VIDEO_MEDIA_TYPE,
+            prompt=prompt,
+            referer="https://grok.com/imagine",
+        )
+        post_data = post.get("post")
+        if not isinstance(post_data, dict):
+            raise UpstreamError("create_media_post returned no post payload")
+        parent_post_id = str(post_data.get("id") or "").strip()
+        if not parent_post_id:
+            raise UpstreamError("create_media_post returned no post id")
+    logger.info("video references={} parent_post_id={}", len(references), parent_post_id or "null")
 
     # All video models use 10s segments; longer videos are stitched via extend.
     # grok-4.3-video was assumed to support 30s natively but upstream rejects it.
@@ -810,8 +836,10 @@ async def _generate_video_with_token(
                 resolution_name=resolution_name,
                 video_length=segment_length,
                 preset=preset,
+                reference_file_ids=[r.file_id for r in references if r.file_id] if references else None,
                 reference_content_urls=[r.content_url for r in references] if references else None,
-                file_attachments=[r.post_id for r in references] if references else None,
+                # Pass VIDEO anchor post_id — the payload builder uses it as parentPostId
+                root_post_id=parent_post_id if references else None,
             )
             referer = "https://grok.com/imagine"
         else:

@@ -51,10 +51,10 @@ class GrokClient:
         grok_model, mode = Models.to_grok(model)
         is_video = info.get("is_video_model", False)
         
-        # 视频模型限制
-        if is_video and len(images) > 1:
-            logger.warning(f"[Client] 视频模型仅支持1张图片，已截取前1张")
-            images = images[:1]
+        # 视频模型：官方支持多图参考，不再限制为1张
+        if is_video and len(images) > 5:
+            logger.warning(f"[Client] 视频模型最多支持5张参考图，已截取前5张")
+            images = images[:5]
         
         return await GrokClient._retry(model, content, images, grok_model, mode, is_video, stream)
 
@@ -152,15 +152,39 @@ class GrokClient:
     @staticmethod
     def _build_payload(content: str, model: str, mode: str, img_ids: List[str], img_uris: List[str], is_video: bool = False, post_id: str = None) -> Dict:
         """构建请求载荷"""
-        # 视频模型特殊处理
+        # 视频模型特殊处理 — 对齐官方 grok.com 协议
         if is_video and img_uris:
-            img_msg = f"https://grok.com/imagine/{post_id}" if post_id else f"https://assets.grok.com/post/{img_uris[0]}"
+            # 构建 imageReferences URL 列表
+            image_refs = [
+                f"https://assets.grok.com/{uri}" if not uri.startswith("http") else uri
+                for uri in img_uris
+            ]
+            # message: @file_id 引用次要图片（第2张起），第1张由 imageReferences[0] 隐式锚定
+            secondary_refs = " ".join(f"@{fid}" for fid in img_ids[1:]) if len(img_ids) > 1 else ""
+            msg_parts = [s for s in [secondary_refs, content, "--mode=custom"] if s]
             return {
                 "temporary": True,
-                "modelName": "grok-3",
-                "message": f"{img_msg}  {content} --mode=custom",
+                "modelName": "imagine-video-gen",
+                "message": " ".join(msg_parts),
                 "fileAttachments": img_ids,
-                "toolOverrides": {"videoGen": True}
+                "toolOverrides": {"videoGen": True},
+                "enableSideBySide": True,
+                "responseMetadata": {
+                    "experiments": [],
+                    "modelConfigOverride": {
+                        "modelMap": {
+                            "videoGenModelConfig": {
+                                "parentPostId": None,
+                                "aspectRatio": "9:16",
+                                "videoLength": 10,
+                                "resolutionName": "720p",
+                                "imageReferences": image_refs,
+                                "isReferenceToVideo": True,
+                                "isVideoEdit": False,
+                            }
+                        }
+                    },
+                },
             }
         
         # 标准载荷
