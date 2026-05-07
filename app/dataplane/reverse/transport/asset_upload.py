@@ -226,6 +226,15 @@ async def upload_from_input(token: str, file_input: str) -> tuple[str, str]:
     filename, b64, mime = parse_data_uri(file_input)
     return await upload_file(token, filename, mime, b64)
 
+def _extract_jwt(token: str) -> str:
+    """Extract the raw JWT value from a token string.
+
+    The token may be stored as 'sso=<jwt>' or just the raw JWT.
+    The ``?token=`` query parameter in imageReferences URLs requires the
+    raw JWT value (same as the sso-rw cookie value on grok.com).
+    """
+    return token[4:] if token.startswith("sso=") else token
+
 
 def resolve_uploaded_asset_reference(token: str, file_id: str, file_uri: str) -> str:
     """Resolve an uploaded asset to the content URL required by image-edit."""
@@ -234,6 +243,20 @@ def resolve_uploaded_asset_reference(token: str, file_id: str, file_uri: str) ->
     if url:
         return url
     raise UpstreamError("Could not resolve uploaded asset reference URL")
+
+
+def resolve_uploaded_asset_reference_for_video(token: str, file_id: str, file_uri: str) -> str:
+    """Resolve an uploaded asset URL with ?token= for use in videoGenModelConfig.imageReferences.
+
+    Official grok.com appends ``?token=<sso_jwt>`` to all imageReferences URLs
+    so the video generation backend can authenticate when fetching images to
+    extract character features.  Without this token the backend cannot read the
+    images and characters in the output video will not resemble the references.
+    """
+    base_url = resolve_uploaded_asset_reference(token, file_id, file_uri)
+    jwt = _extract_jwt(token)
+    sep = "&" if "?" in base_url else "?"
+    return f"{base_url}{sep}token={jwt}"
 
 
 def _extract_user_id(token: str) -> str | None:
@@ -249,4 +272,5 @@ __all__ = [
     "upload_from_input",
     "parse_data_uri",
     "resolve_uploaded_asset_reference",
+    "resolve_uploaded_asset_reference_for_video",
 ]

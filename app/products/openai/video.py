@@ -34,6 +34,7 @@ from app.dataplane.reverse.protocol.xai_chat import classify_line
 from app.dataplane.reverse.runtime.endpoint_table import CHAT
 from app.dataplane.reverse.transport.asset_upload import (
     resolve_uploaded_asset_reference,
+    resolve_uploaded_asset_reference_for_video,
     upload_from_input,
 )
 from app.dataplane.reverse.transport.assets import download_asset
@@ -587,8 +588,12 @@ async def _prepare_video_reference(token: str, input_reference: dict[str, Any]) 
 
     ref_file_id = ""
     if _is_upstream_asset_content_url(image_input):
-        content_url = image_input
-        # Extract file_id from URL: /users/{user_id}/{file_id}/content[?...]
+        # Already an asset URL: add ?token= so backend can authenticate
+        content_url = resolve_uploaded_asset_reference_for_video(
+            token,
+            "",     # file_id extracted below
+            image_input,
+        )
         path_part = image_input.split("?")[0]
         parts = path_part.rstrip("/").split("/")
         if parts and parts[-1] == "content" and len(parts) >= 2:
@@ -596,7 +601,8 @@ async def _prepare_video_reference(token: str, input_reference: dict[str, Any]) 
     else:
         try:
             uploaded_file_id, uploaded_file_uri = await upload_from_input(token, image_input)
-            content_url = resolve_uploaded_asset_reference(token, uploaded_file_id, uploaded_file_uri)
+            # Use token-signed URL (matches official ?token= protocol)
+            content_url = resolve_uploaded_asset_reference_for_video(token, uploaded_file_id, uploaded_file_uri)
             ref_file_id = uploaded_file_id
         except ValidationError as exc:
             raise ValidationError(exc.message, param="input_reference.image_url") from exc
