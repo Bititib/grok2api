@@ -224,7 +224,7 @@ async def _resolve_image(token: str, url: str, image_id: str) -> str:
       base64    — ![image](data:...) markdown
     """
     cfg = get_config()
-    fmt = _normalize_image_format(cfg.get_str("features.image_format", "grok_url"))
+    fmt = _normalize_image_format(cfg.get_str("app.image_format", "local_url"))
 
     # Formats that don't need downloading
     if fmt == "grok_url":

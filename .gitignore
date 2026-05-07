@@ -50,6 +50,13 @@ app/data/
 .pytest_cache/
 .coverage
 htmlcov/
+test_*.mjs
+test_*.json
+test_*.mp4
+ref_img_*
+*.mp4
 
 # Project specific
 .ace-tool/
+
+ai-drama-studio/

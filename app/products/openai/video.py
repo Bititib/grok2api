@@ -119,6 +119,9 @@ class _VideoJob:
         }
         if self.completed_at is not None:
             payload["completed_at"] = self.completed_at
+        if self.status == "completed" and self.content_path:
+            app_url = get_config().get_str("app.app_url", "").rstrip("/")
+            payload["url"] = f"{app_url}/v1/videos/{self.id}/content" if app_url else f"/v1/videos/{self.id}/content"
         if self.error is not None:
             payload["error"] = self.error
         if self.remixed_from_video_id:

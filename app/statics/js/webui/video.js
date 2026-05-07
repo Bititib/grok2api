@@ -3,8 +3,8 @@
   window.VIDEO_FEATURES = {
     enableIdentityCheck: true, // 是否强制要求输入岗位和姓名
     enableTopMarquee: true,    // 是否显示顶部滚动公告
-    enableMainAd: true,        // 是否显示中间的主广告横幅
-    enableSideAds: true,       // 是否显示左右两侧悬浮对联广告
+    enableMainAd: false,        // 是否显示中间的主广告横幅
+    enableSideAds: false,       // 是否显示左右两侧悬浮对联广告
     enableDownloadAd: false     // 是否在点击下载时弹出恶搞广告
   };
 

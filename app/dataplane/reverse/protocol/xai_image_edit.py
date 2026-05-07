@@ -15,13 +15,18 @@ def build_image_edit_payload(
     prompt: str,
     image_references: list[str],
     parent_post_id: str,
+    aspect_ratio: str = "1:1",
 ) -> dict[str, Any]:
     """Build the JSON payload for imagine image-edit chat requests."""
     cfg = get_config()
+    # Append aspect ratio instruction to prompt when non-square
+    effective_prompt = prompt
+    if aspect_ratio and aspect_ratio != "1:1":
+        effective_prompt = f"{prompt}\n\n[Output aspect ratio: {aspect_ratio}, do NOT crop to square]"
     return {
         "temporary": cfg.get_bool("features.temporary", True),
         "modelName": IMAGE_EDIT_MODEL_NAME,
-        "message": prompt,
+        "message": effective_prompt,
         "enableImageGeneration": True,
         "returnImageBytes": False,
         "returnRawGrokInXaiRequest": False,
@@ -33,6 +38,7 @@ def build_image_edit_payload(
         "sendFinalMetadata": True,
         "isReasoning": False,
         "disableTextFollowUps": True,
+        "imageAspectRatio": aspect_ratio,
         "responseMetadata": {
             "modelConfigOverride": {
                 "modelMap": {
@@ -40,6 +46,7 @@ def build_image_edit_payload(
                     "imageEditModelConfig": {
                         "imageReferences": image_references,
                         "parentPostId": parent_post_id,
+                        "aspectRatio": aspect_ratio,
                     },
                 }
             }

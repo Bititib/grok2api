@@ -128,6 +128,11 @@ async def _upload_file_inner(
     headers = build_http_headers(token, lease=lease)
     kwargs  = build_session_kwargs(lease=lease)
 
+    logger.info(
+        "asset upload attempt: filename={!r} mime={!r} payload_size={} b64_len={} token_prefix={!r}",
+        filename, mime, len(payload), len(b64), token[:8] if token else "none",
+    )
+
     try:
         async with ResettableSession(**kwargs) as session:
             response = await session.post(

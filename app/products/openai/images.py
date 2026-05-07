@@ -575,14 +575,11 @@ def _normalize_edit_inputs(image_inputs: list[str]) -> list[str]:
 
 
 def _normalize_edit_size(size: str) -> str:
-    """Validate the only upstream-backed image-edit size."""
+    """Normalize image-edit size, now supports all standard sizes."""
     normalized = (size or _EDIT_DEFAULT_SIZE).strip().lower()
-    if normalized != _EDIT_DEFAULT_SIZE:
-        raise ValidationError(
-            f"image edit currently only supports size {_EDIT_DEFAULT_SIZE!r}",
-            param="size",
-        )
-    return _EDIT_DEFAULT_SIZE
+    if normalized not in _RATIO_MAP:
+        return _EDIT_DEFAULT_SIZE
+    return normalized
 
 
 async def _prepare_edit_reference(token: str, image_input: str, index: int) -> str:
@@ -726,6 +723,7 @@ async def _collect_edit_final_urls(
     prompt: str,
     image_references: list[str],
     parent_post_id: str,
+    aspect_ratio: str = "1:1",
     timeout_s: float,
     progress_cb: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> dict[int, str]:
@@ -737,6 +735,7 @@ async def _collect_edit_final_urls(
         prompt,
         image_references,
         parent_post_id,
+        aspect_ratio=aspect_ratio,
         timeout_s=timeout_s,
     ):
         ev_type, data = classify_line(line)
@@ -772,6 +771,7 @@ async def _collect_edit_images(
     parent_post_id: str,
     requested_n: int,
     response_format: str,
+    aspect_ratio: str = "1:1",
     timeout_s: float,
     progress_cb: Callable[[int, int], Awaitable[None]] | None = None,
 ) -> list[_ImageOutput]:
@@ -790,6 +790,7 @@ async def _collect_edit_images(
             prompt=prompt,
             image_references=image_references,
             parent_post_id=parent_post_id,
+            aspect_ratio=aspect_ratio,
             timeout_s=timeout_s,
             progress_cb=progress_cb,
         )
@@ -824,6 +825,7 @@ async def _stream_image_edit(
     image_references: list[str],
     parent_post_id: str,
     *,
+    aspect_ratio: str = "1:1",
     timeout_s: float = 120.0,
 ) -> AsyncGenerator[str, None]:
     proxy = await get_proxy_runtime()
@@ -832,6 +834,7 @@ async def _stream_image_edit(
         prompt=prompt,
         image_references=image_references,
         parent_post_id=parent_post_id,
+        aspect_ratio=aspect_ratio,
     )
     headers = build_http_headers(
         token,
@@ -1008,7 +1011,8 @@ async def edit(
     timeout_s = cfg.get_float("chat.timeout", 120.0)
     if not (1 <= n <= _EDIT_MAX_N):
         raise ValidationError("image edit n must be between 1 and 2", param="n")
-    _normalize_edit_size(size)
+    normalized_size = _normalize_edit_size(size)
+    aspect_ratio = resolve_aspect_ratio(normalized_size)
 
     prompt, image_inputs = _extract_edit_prompt_and_inputs(messages)
 
@@ -1070,6 +1074,7 @@ async def edit(
                         parent_post_id=parent_post_id,
                         requested_n=n,
                         response_format=response_format,
+                        aspect_ratio=aspect_ratio,
                         timeout_s=timeout_s,
                         progress_cb=_progress,
                     )
@@ -1134,6 +1139,7 @@ async def edit(
             parent_post_id=parent_post_id,
             requested_n=n,
             response_format=response_format,
+            aspect_ratio=aspect_ratio,
             timeout_s=timeout_s,
             progress_cb=_progress,
         )

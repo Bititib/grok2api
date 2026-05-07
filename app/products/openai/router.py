@@ -526,15 +526,25 @@ async def videos_create(
     input_reference: Annotated[
         list[UploadFile] | None, File(alias="input_reference[]")
     ] = None,
+    input_reference_url: Annotated[
+        list[str] | None, Form(alias="input_reference_url[]")
+    ] = None,
 ):
     from .video import create_video
 
-    references_payload = None
+    # Merge file uploads + URL references into a unified list
+    references_payload: list[dict] | None = None
+    refs: list[dict] = []
     if input_reference:
-        references_payload = [
-            {"image_url": await _upload_to_data_uri(f, param="input_reference")}
-            for f in input_reference[:5]
-        ]
+        for f in input_reference[:5]:
+            refs.append({"image_url": await _upload_to_data_uri(f, param="input_reference")})
+    if input_reference_url:
+        for url in input_reference_url[:5 - len(refs)]:
+            url = url.strip()
+            if url:
+                refs.append({"image_url": url})
+    if refs:
+        references_payload = refs[:5]
 
     _start_time = time.monotonic()
     _check_billing_model_access(request, model or "grok-video")
@@ -563,9 +573,9 @@ async def videos_retrieve(video_id: str):
 @router.get(
     "/videos/{video_id}/content",
     tags=[_TAG_VIDEOS],
-    dependencies=[Depends(verify_api_key)],
 )
 async def videos_content(video_id: str):
+    """Download video content. No auth required — video_id is a random token."""
     from .video import content_path
 
     path = await content_path(video_id)
