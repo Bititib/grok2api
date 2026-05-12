@@ -628,6 +628,7 @@ async def _collect_video_segment(
     referer: str,
     timeout_s: float,
     progress_cb: Callable[[int], Awaitable[None]] | None = None,
+    _token_for_resolve: str = "",
 ) -> _VideoArtifact:
     final_url = ""
     final_asset_id = ""
@@ -679,23 +680,39 @@ async def _collect_video_segment(
                 or ""
             ).strip()
 
-            if progress >= 100 and not stream.get("moderated"):
-                raw_url = stream.get("videoUrl")
-                asset_id = stream.get("assetId")
-                thumbnail = stream.get("thumbnailImageUrl")
-                if isinstance(raw_url, str) and raw_url:
-                    final_url = _absolutize_video_url(raw_url)
-                if isinstance(asset_id, str) and asset_id:
-                    final_asset_id = asset_id
-                if isinstance(thumbnail, str) and thumbnail:
-                    final_thumbnail = _absolutize_video_url(thumbnail)
+            # Grok may send videoUrl in a packet where progress < 100, or in a
+            # separate final packet after the progress=100 signal.  Capture the
+            # URL from ANY packet that contains it (as long as it is not marked
+            # as moderated at completion).
+            is_moderated_final = progress >= 100 and stream.get("moderated")
+            if is_moderated_final:
+                raise UpstreamError("Video generation was blocked by content moderation (moderated=true)")
+
+            raw_url = stream.get("videoUrl")
+            asset_id = stream.get("assetId")
+            thumbnail = stream.get("thumbnailImageUrl")
+            if isinstance(raw_url, str) and raw_url:
+                final_url = _absolutize_video_url(raw_url)
+            if isinstance(asset_id, str) and asset_id:
+                final_asset_id = asset_id
+            if isinstance(thumbnail, str) and thumbnail:
+                final_thumbnail = _absolutize_video_url(thumbnail)
 
         attachments = _extract_model_response_file_attachments(obj)
         if attachments and not final_asset_id:
             final_asset_id = attachments[0]
 
     if not final_url and final_asset_id:
-        final_url = resolve_asset_reference(final_asset_id, "", user_id=None) or ""
+        # extend-segment responses often only return assetId (no videoUrl field).
+        # Reconstruct the content URL using the user_id extracted from the token.
+        from app.dataplane.reverse.transport.asset_upload import _extract_user_id
+        _uid = _extract_user_id(_token_for_resolve or token)
+        final_url = resolve_asset_reference(final_asset_id, "", user_id=_uid) or ""
+        if final_url:
+            logger.info(
+                "video segment URL resolved from assetId: asset_id={} user_id={} url={}",
+                final_asset_id, _uid, final_url,
+            )
 
     if not final_url and final_asset_id:
         raise UpstreamError("Video segment returned only assetId without a resolvable URL")
@@ -874,6 +891,7 @@ async def _generate_video_with_token(
             referer=referer,
             timeout_s=timeout_s,
             progress_cb=_segment_progress if progress_cb is not None else None,
+            _token_for_resolve=token,
         )
         if index == 0 and total_segments > 1:
             artifact.remixed_from_video_id = artifact.video_post_id or parent_post_id
