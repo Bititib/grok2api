@@ -123,7 +123,7 @@ class _VideoJob:
             payload["completed_at"] = self.completed_at
         if self.status == "completed" and self.content_path:
             app_url = get_config().get_str("app.app_url", "").rstrip("/")
-            payload["url"] = f"{app_url}/v1/videos/{self.id}/content" if app_url else f"/v1/videos/{self.id}/content"
+            payload["url"] = f"{app_url}/v1/files/video?id={self.id}" if app_url else f"/v1/files/video?id={self.id}"
         if self.error is not None:
             payload["error"] = self.error
         if self.remixed_from_video_id:
@@ -769,7 +769,7 @@ def _render_video_html(url: str) -> str:
 
 
 async def _resolve_video_output(*, token: str, url: str, file_id: str) -> str:
-    fmt = _normalize_video_format(get_config().get_str("features.video_format", "grok_url"))
+    fmt = _normalize_video_format(get_config().get_str("features.video_format", "local_url"))
     if fmt == "grok_url":
         return url
     if fmt == "grok_html":
@@ -1258,19 +1258,24 @@ async def retrieve(video_id: str) -> dict[str, Any]:
 
 async def content_path(video_id: str) -> Path:
     job = await get_video_job(video_id)
-    if job is None:
-        raise ValidationError(f"Video {video_id!r} not found", param="video_id")
-    if job.status != "completed" or not job.content_path:
-        raise AppError(
-            "Video content is not ready yet",
-            kind=ErrorKind.VALIDATION,
-            code="video_not_ready",
-            status=409,
-        )
-    path = Path(job.content_path)
-    if not path.exists():
-        raise ValidationError(f"Video content for {video_id!r} not found", param="video_id")
-    return path
+    if job is not None:
+        if job.status != "completed" or not job.content_path:
+            raise AppError(
+                "Video content is not ready yet",
+                kind=ErrorKind.VALIDATION,
+                code="video_not_ready",
+                status=409,
+            )
+        path = Path(job.content_path)
+        if path.exists():
+            return path
+
+    # Fallback: try to find the file on disk (survives container restarts).
+    disk_path = video_files_dir() / f"{video_id}.mp4"
+    if disk_path.exists():
+        return disk_path
+
+    raise ValidationError(f"Video {video_id!r} not found", param="video_id")
 
 
 def _extract_video_prompt_and_reference(messages: list[dict]) -> tuple[str, dict[str, Any] | None]:
