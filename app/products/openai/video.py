@@ -142,12 +142,9 @@ def _build_message(
     reference_file_ids: list[str] | None = None,
 ) -> str:
     flag = _PRESET_FLAGS.get(preset, "--mode=custom")
-    if reference_file_ids:
-        # Official format: @{file_id} for ALL reference images.
-        # The model requires every file_id to be @-referenced to treat them as
-        # character references (not just conversation context).
-        refs = " ".join(f"@{fid}" for fid in reference_file_ids)
-        return f"{refs} {prompt} {flag}".strip()
+    # 【画质修复】千万不要向视频模型发送 @{fid}，底层视频引擎（如 Luma）
+    # 无法解析 @UUID，会导致提示词语义崩溃和生成极低质量的画面。
+    # 图像信息已经通过底层的 imageReferences 数组传过去了。
     return f"{prompt} {flag}".strip()
 
 
@@ -162,9 +159,11 @@ import re as _re
 
 # Matches timestamp patterns like:
 #   镜头 1 (0-0.5秒)   Shot 2 (0.5-2.5s)   · 镜头 3 (2.5-4.5秒)
+#   0-3秒远景：...
+#   13-15秒命中特写：...
 _SHOT_RE = _re.compile(
-    r'(?:^|\n)\s*[·•●\-]?\s*(?:镜头|shot|clip)\s*\d+\s*'
-    r'\((\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(?:秒|s|seconds?)?\)',
+    r'(?:^|\n)\s*[·•●\-]?\s*(?:(?:镜头|shot|clip|scene)\s*\d+\s*)?'
+    r'\(?(\d+(?:\.\d+)?)\s*[-–~]\s*(\d+(?:\.\d+)?)\s*(?:秒|s|seconds?)?\)?',
     _re.IGNORECASE,
 )
 
@@ -663,6 +662,14 @@ async def _collect_video_segment(
         if obj.get("error"):
             err_msg = obj.get("error", {}).get("message") or obj.get("message") or str(obj)
             raise UpstreamError(f"Video generation upstream error: {err_msg}")
+
+        # 尝试从模型响应中提取真正的 POST ID
+        try:
+            model_response_id = obj.get("result", {}).get("response", {}).get("modelResponse", {}).get("id")
+            if model_response_id and isinstance(model_response_id, str):
+                video_post_id = model_response_id.strip()
+        except Exception:
+            pass
 
         stream = _extract_streaming_video_response(obj)
         if stream:
