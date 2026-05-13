@@ -74,12 +74,16 @@ class AddTokensRequest(BaseModel):
     tokens: list[str]
     pool: str = "basic"
     tags: list[str] = []
+    remark: str = ""
+    expires_at: int | None = None  # ms timestamp
 
 
 class EditTokenRequest(BaseModel):
     old_token: str
     token: str
     pool: str = "basic"
+    remark: str | None = None
+    expires_at: int | None = None  # ms timestamp, -1 to clear
 
 
 class ToggleTokenDisabledRequest(BaseModel):
@@ -90,6 +94,8 @@ class ToggleTokenDisabledRequest(BaseModel):
 class TokenImportItem(BaseModel):
     token: str
     tags: list[str] = []
+    remark: str = ""
+    expires_at: int | None = None
 
 
 class SaveTokensRequest(RootModel[dict[str, list[str | TokenImportItem]]]):
@@ -114,6 +120,7 @@ def _quota_brief(q: dict) -> dict:
 
 
 def _serialize_record(r) -> dict:
+    ext = r.ext or {}
     return {
         "token":       r.token,
         "pool":        r.pool or "basic",
@@ -122,6 +129,8 @@ def _serialize_record(r) -> dict:
         "use_count":   r.usage_use_count or 0,
         "last_used_at": r.last_use_at,
         "tags":        r.tags or [],
+        "remark":      ext.get("remark", ""),
+        "expires_at":  ext.get("expires_at"),
     }
 
 
@@ -166,7 +175,12 @@ async def save_tokens(
             token_val = _sanitize(td.get("token", ""))
             if not token_val:
                 continue
-            upserts.append(AccountUpsert(token=token_val, pool=pool_name, tags=td.get("tags") or []))
+            item_ext: dict = {}
+            if td.get("remark"):
+                item_ext["remark"] = td["remark"]
+            if td.get("expires_at") is not None:
+                item_ext["expires_at"] = td["expires_at"]
+            upserts.append(AccountUpsert(token=token_val, pool=pool_name, tags=td.get("tags") or [], ext=item_ext))
         if upserts:
             await repo.replace_pool(BulkReplacePoolCommand(pool=pool_name, upserts=upserts))
             all_tokens.extend(u.token for u in upserts)
@@ -206,7 +220,14 @@ async def add_tokens(
     if not new_tokens:
         return _json({"status": "success", "count": 0, "skipped": len(cleaned)})
 
-    upserts = [AccountUpsert(token=t, pool=requested_pool, tags=req.tags) for t in new_tokens]
+    # Build ext metadata for new tokens
+    ext: dict = {}
+    if req.remark:
+        ext["remark"] = req.remark
+    if req.expires_at is not None:
+        ext["expires_at"] = req.expires_at
+
+    upserts = [AccountUpsert(token=t, pool=requested_pool, tags=req.tags, ext=ext) for t in new_tokens]
     result = await repo.upsert_accounts(upserts)
     logger.info(
         "admin tokens added: pool={} added_count={} skipped_count={}",
@@ -280,11 +301,21 @@ async def edit_token(
                 status=409,
             )
 
+    # Merge remark/expires_at into ext
+    merged_ext = dict(record.ext)
+    if req.remark is not None:
+        merged_ext["remark"] = req.remark
+    if req.expires_at is not None:
+        if req.expires_at == -1:
+            merged_ext.pop("expires_at", None)  # clear
+        else:
+            merged_ext["expires_at"] = req.expires_at
+
     await repo.upsert_accounts([AccountUpsert(
         token=new_token,
         pool=pool,
         tags=record.tags,
-        ext=record.ext,
+        ext=merged_ext,
     )])
 
     if old_token == new_token:
@@ -371,6 +402,53 @@ async def replace_pool(
     if cleaned:
         asyncio.create_task(_refresh_imported(refresh_svc, cleaned))
     return _json({"pool": req.pool, "count": len(cleaned)})
+
+
+class UpdateTokenMetaRequest(BaseModel):
+    token: str
+    remark: str | None = None
+    expires_at: int | None = None  # ms timestamp, -1 to clear
+
+
+@router.patch("/tokens/meta")
+async def update_token_meta(
+    req: UpdateTokenMetaRequest,
+    repo: "AccountRepository" = Depends(get_repo),
+):
+    """Update remark and/or expires_at for a single token."""
+    token = _sanitize(req.token)
+    if not token:
+        raise ValidationError("Token is required", param="token")
+
+    records = await repo.get_accounts([token])
+    if not records:
+        raise AppError(
+            "Account not found",
+            kind=ErrorKind.VALIDATION,
+            code="account_not_found",
+            status=404,
+        )
+    record = records[0]
+
+    ext_merge: dict = {}
+    if req.remark is not None:
+        ext_merge["remark"] = req.remark
+    if req.expires_at is not None:
+        if req.expires_at == -1:
+            # Clear expires_at — merge empty then remove in ext
+            ext_merge["expires_at"] = None
+        else:
+            ext_merge["expires_at"] = req.expires_at
+
+    if not ext_merge:
+        return _json({"status": "success", "token": token})
+
+    await repo.patch_accounts([AccountPatch(
+        token=token,
+        ext_merge=ext_merge,
+    )])
+    logger.info("admin token meta updated: token={} remark={} expires_at={}", _mask(token), req.remark, req.expires_at)
+    return _json({"status": "success", "token": token})
 
 
 # ---------------------------------------------------------------------------
