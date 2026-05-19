@@ -378,7 +378,8 @@ async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest
 
     if isinstance(result, dict):
         _billing_record_from_result(request, result, req.model, "chat", _start_time,
-                                    video_seconds=(req.video_config.seconds or 6) if spec.is_video() and req.video_config else 0)
+                                    video_seconds=(req.video_config.seconds or 6) if spec.is_video() and req.video_config else 0,
+                                    video_resolution=((req.video_config.resolution_name or "720p") if req.video_config else "720p") if spec.is_video() else "720p")
         return JSONResponse(result)
     return StreamingResponse(
         _sse_with_heartbeat(_safe_sse(result)),
@@ -557,7 +558,7 @@ async def videos_create(
         preset=preset,
         input_references=references_payload,
     )
-    _billing_record_from_result(request, result, model or "grok-video", "video", _start_time, video_seconds=seconds)
+    _billing_record_from_result(request, result, model or "grok-video", "video", _start_time, video_seconds=seconds, video_resolution=resolution_name or "720p")
     return JSONResponse(result)
 
 
@@ -758,6 +759,7 @@ def _billing_record_from_result(
     start_time: float,
     *,
     video_seconds: int = 0,
+    video_resolution: str = "720p",
 ) -> None:
     """Fire-and-forget billing record for a non-streaming response with usage dict."""
     billing_key = getattr(request.state, "billing_key", None)
@@ -781,6 +783,7 @@ def _billing_record_from_result(
             prompt_tokens=usage.get("prompt_tokens", 0),
             completion_tokens=usage.get("completion_tokens", 0),
             video_seconds=video_seconds,
+            video_resolution=video_resolution,
             request_id=request_id,
             duration_ms=duration_ms,
         )

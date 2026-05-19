@@ -74,6 +74,7 @@ class BillingService:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         video_seconds: int = 0,
+        video_resolution: str = "720p",
         request_id: str = "",
         duration_ms: int = 0,
         status: str = "success",
@@ -85,6 +86,7 @@ class BillingService:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             video_seconds=video_seconds,
+            video_resolution=video_resolution,
             endpoint=endpoint,
         )
 
