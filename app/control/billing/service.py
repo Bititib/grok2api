@@ -91,8 +91,14 @@ class BillingService:
         )
 
         # Deduct from balance
+        deducted = False
         if cost > 0:
-            await self.repo.deduct_balance(key_record.key, cost)
+            deducted = await self.repo.deduct_balance(key_record.key, cost)
+            if not deducted:
+                logger.warning(
+                    "billing deduction failed (insufficient balance): key={}... cost={} balance={}",
+                    key_record.key[:8], cost, key_record.balance,
+                )
 
         # Write audit log
         log = UsageLog(
@@ -105,7 +111,7 @@ class BillingService:
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
             video_seconds=video_seconds,
-            cost=cost,
+            cost=cost if deducted else 0.0,
             status=status,
             error_message=error_message,
             duration_ms=duration_ms,
@@ -117,12 +123,12 @@ class BillingService:
             logger.warning("billing log insert failed: error={}", exc)
 
         logger.debug(
-            "billing recorded: key={}... model={} endpoint={} cost={} balance_after={}",
+            "billing recorded: key={}... model={} endpoint={} cost={} deducted={}",
             key_record.key[:8],
             model,
             endpoint,
             cost,
-            key_record.balance - cost,
+            deducted,
         )
         return cost
 

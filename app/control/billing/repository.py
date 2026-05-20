@@ -191,13 +191,19 @@ class BillingRepository:
         return await self.get_key(key)
 
     async def deduct_balance(self, key: str, cost: float) -> bool:
-        """Atomically deduct cost from key balance. Returns True if successful."""
-        await self.db.execute(
-            "UPDATE api_keys SET balance = balance - ?, total_charged = total_charged + ? WHERE key = ?",
-            (cost, cost, key),
-        )
+        """Atomically deduct cost from key balance.
+
+        Returns True if deduction succeeded, False if balance was insufficient.
+        The WHERE clause ensures balance never goes negative.
+        """
+        async with self.db.execute(
+            "UPDATE api_keys SET balance = balance - ?, total_charged = total_charged + ? "
+            "WHERE key = ? AND balance >= ?",
+            (cost, cost, key, cost),
+        ) as cur:
+            updated = cur.rowcount > 0
         await self.db.commit()
-        return True
+        return updated
 
     # ── Usage Log ─────────────────────────────────────────────────────────
 
