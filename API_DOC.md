@@ -1,4 +1,4 @@
-# Grok2API 接口文档
+# zhuboApi 接口文档
 
 > **Base URL**: `https://grokai.zhubo.asia`
 > **认证方式**: `Authorization: Bearer <API_KEY>` 或 `X-API-Key: <API_KEY>`
@@ -340,47 +340,244 @@ Content-Type: multipart/form-data
 
 ## 7. 视频生成
 
-### 7.1 创建视频
+视频接口为**异步**模式：先提交创建任务，拿到 `video_id`，再轮询状态直到 `completed`。
+
+### 7.1 创建视频任务
 
 ```
 POST /v1/videos
 Content-Type: multipart/form-data
 ```
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `model` | string | ✅ | 视频模型名称 |
-| `prompt` | string | ✅ | 视频描述 |
-| `seconds` | int | - | 时长（秒），默认 `6` |
-| `size` | string | - | 画幅，默认 `720x1280` |
-| `resolution_name` | string | - | 分辨率: `480p` 或 `720p` |
-| `preset` | string | - | 预设: `fun`, `normal`, `spicy`, `custom` |
-| `input_reference[]` | file | - | 参考图片文件（最多 5 张） |
-| `input_reference_url[]` | string | - | 参考图片 URL（最多 5 个） |
+**请求参数**:
 
-**响应示例**:
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `model` | string | ✅ | - | 视频模型名（见下方可选值） |
+| `prompt` | string | ✅ | - | 视频描述 |
+| `seconds` | int | - | `6` | 时长：`6`, `10`, `12`, `16`, `20`, `30` |
+| `size` | string | - | `720x1280` | 画幅 |
+| `resolution_name` | string | - | `720p` | 分辨率: `480p` / `720p` |
+| `preset` | string | - | - | 预设: `fun`, `normal`, `spicy`, `custom` |
+| `input_reference[]` | file | - | - | 参考图片文件上传（最多 5 张） |
+| `input_reference_url[]` | string | - | - | 参考图片 URL（最多 5 个） |
+
+**可用模型**:
+
+| 模型名 | 说明 |
+|---|---|
+| `grok-imagine-video` | 标准视频生成（推荐） |
+| `grok-4.3-video` | Grok 4.3 视频 |
+| `grok-4.3-video-heavy` | Grok 4.3 视频（Heavy 级账号池） |
+
+**size 可选值**: `720x1280` (竖屏)、`1280x720` (横屏)、`1024x1024` (方形)、`1024x1792`、`1792x1024`
+
+#### 示例 1：纯文字生成视频
+
+```bash
+curl -X POST https://grokai.zhubo.asia/v1/videos \
+  -H "Authorization: Bearer sk-你的Key" \
+  -F "model=grok-imagine-video" \
+  -F "prompt=一只猫在月球上跳舞，科幻风格，电影级画质" \
+  -F "seconds=6" \
+  -F "size=1280x720"
+```
+
+#### 示例 2：带参考图片生成视频（本地文件上传）
+
+```bash
+curl -X POST https://grokai.zhubo.asia/v1/videos \
+  -H "Authorization: Bearer sk-你的Key" \
+  -F "model=grok-imagine-video" \
+  -F "prompt=两个角色在街头激烈格斗，动作片风格" \
+  -F "seconds=6" \
+  -F "size=1280x720" \
+  -F "input_reference[]=@/path/to/character_a.jpg" \
+  -F "input_reference[]=@/path/to/character_b.jpg"
+```
+
+#### 示例 3：带参考图片生成视频（URL 方式）
+
+```bash
+curl -X POST https://grokai.zhubo.asia/v1/videos \
+  -H "Authorization: Bearer sk-你的Key" \
+  -F "model=grok-imagine-video" \
+  -F "prompt=角色在赛道上飙车" \
+  -F "seconds=10" \
+  -F "size=1280x720" \
+  -F "input_reference_url[]=https://example.com/car1.jpg" \
+  -F "input_reference_url[]=https://example.com/car2.jpg"
+```
+
+**创建成功响应** (HTTP 200):
+
 ```json
 {
-  "id": "video-xxxxxxxx",
-  "status": "completed",
-  "url": "https://...",
-  "created_at": 1772765431
+  "id": "video_61be39094ee24240b27a09c673beb068",
+  "object": "video",
+  "created_at": 1779357896,
+  "status": "queued",
+  "model": "grok-imagine-video",
+  "progress": 0,
+  "prompt": "...",
+  "seconds": "6",
+  "size": "1280x720",
+  "quality": "standard"
 }
 ```
 
-### 7.2 查询视频状态
+### 7.2 轮询视频状态
 
 ```
 GET /v1/videos/{video_id}
 ```
 
-### 7.3 下载视频内容
+建议每 **5 秒** 轮询一次。视频通常在 **30~180 秒**内生成完毕。
+
+```bash
+curl https://grokai.zhubo.asia/v1/videos/video_61be39094ee24240b27a09c673beb068 \
+  -H "Authorization: Bearer sk-你的Key"
+```
+
+**生成中响应**:
+
+```json
+{
+  "id": "video_61be39094ee24240b27a09c673beb068",
+  "object": "video",
+  "status": "processing",
+  "progress": 65,
+  "..."
+}
+```
+
+**生成完成响应**:
+
+```json
+{
+  "id": "video_61be39094ee24240b27a09c673beb068",
+  "object": "video",
+  "status": "completed",
+  "progress": 100,
+  "completed_at": 1779357919,
+  "url": "https://grokai.zhubo.asia/v1/files/video?id=video_61be39094ee24240b27a09c673beb068",
+  "model": "grok-imagine-video",
+  "prompt": "...",
+  "seconds": "6",
+  "size": "1280x720",
+  "quality": "standard"
+}
+```
+
+**生成失败响应**:
+
+```json
+{
+  "id": "video_xxx",
+  "object": "video",
+  "status": "failed",
+  "error": {
+    "message": "具体错误原因"
+  }
+}
+```
+
+### 7.3 下载视频文件
+
+```
+GET /v1/files/video?id={video_id}
+```
+
+返回 `video/mp4` 文件流，**无需认证**，可直接在浏览器中播放。
+
+```bash
+# 下载到本地
+curl -o output.mp4 "https://grokai.zhubo.asia/v1/files/video?id=video_61be39094ee24240b27a09c673beb068"
+```
+
+也可使用旧路径（同样可用）：
 
 ```
 GET /v1/videos/{video_id}/content
 ```
 
-返回 `video/mp4` 文件流，无需认证。
+### 7.4 完整调用流程示例（Python）
+
+```python
+import time
+import requests
+
+API_KEY = "sk-你的Key"
+BASE = "https://grokai.zhubo.asia"
+HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+
+# 1. 创建视频任务
+resp = requests.post(f"{BASE}/v1/videos", headers=HEADERS, data={
+    "model": "grok-imagine-video",
+    "prompt": "一只猫在月球上跳舞",
+    "seconds": 6,
+    "size": "1280x720",
+})
+job = resp.json()
+video_id = job["id"]
+print(f"任务已创建: {video_id}")
+
+# 2. 轮询等待完成
+while True:
+    r = requests.get(f"{BASE}/v1/videos/{video_id}", headers=HEADERS).json()
+    print(f"  状态: {r['status']} | 进度: {r.get('progress', 0)}%")
+    if r["status"] == "completed":
+        print(f"✅ 视频地址: {r['url']}")
+        break
+    elif r["status"] == "failed":
+        print(f"❌ 失败: {r.get('error', {}).get('message', '未知错误')}")
+        break
+    time.sleep(5)
+```
+
+### 7.5 带参考图完整示例（Python）
+
+```python
+import time
+import requests
+
+API_KEY = "sk-你的Key"
+BASE = "https://grokai.zhubo.asia"
+HEADERS = {"Authorization": f"Bearer {API_KEY}"}
+
+# 1. 上传参考图 + 创建任务
+files = [
+    ("input_reference[]", ("ref1.jpg", open("ref1.jpg", "rb"), "image/jpeg")),
+    ("input_reference[]", ("ref2.jpg", open("ref2.jpg", "rb"), "image/jpeg")),
+]
+resp = requests.post(f"{BASE}/v1/videos", headers=HEADERS, data={
+    "model": "grok-imagine-video",
+    "prompt": "两个角色在海边对决",
+    "seconds": 6,
+    "size": "1280x720",
+}, files=files)
+job = resp.json()
+video_id = job["id"]
+print(f"任务已创建: {video_id}")
+
+# 2. 轮询等待
+while True:
+    r = requests.get(f"{BASE}/v1/videos/{video_id}", headers=HEADERS).json()
+    print(f"  状态: {r['status']} | 进度: {r.get('progress', 0)}%")
+    if r["status"] in ("completed", "failed"):
+        print(r.get("url") or r.get("error", {}).get("message"))
+        break
+    time.sleep(5)
+```
+
+### 7.6 常见错误与排查
+
+| 错误信息 | HTTP | 原因 | 解决方案 |
+|---|---|---|---|
+| `Model 'xxx' is not a video model` | 400 | 模型名错误 | 使用 `grok-imagine-video` 等有效模型名 |
+| `seconds must be one of [6, 10, 12, 16, 20, 30]` | 400 | 时长不在支持范围 | 使用支持的秒数值 |
+| `Video input reference upload failed: Asset upload returned 403` | 502 | 上游账号 Token 过期或被风控 | 系统会自动重试换号；如持续出现请联系管理员刷新 Token 池 |
+| `余额不足` | 402 | 账户余额已用完 | 请充值后重试 |
 
 ---
 
