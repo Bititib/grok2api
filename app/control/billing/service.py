@@ -63,6 +63,22 @@ class BillingService:
             return False
         return record.balance > 0
 
+    # ── Pre-hold for long-running requests ────────────────────────────────
+
+    async def hold_balance(self, key: str, amount: float) -> bool:
+        """Atomically freeze *amount* from balance before generation starts."""
+        return await self.repo.hold_balance(key, amount)
+
+    async def settle_hold(
+        self, key: str, held: float, actual: float
+    ) -> None:
+        """Reconcile a previous hold with the actual cost (refund / charge)."""
+        await self.repo.settle_hold(key, held, actual)
+
+    async def refund_hold(self, key: str, amount: float) -> None:
+        """Fully refund a hold (generation failed, nothing consumed)."""
+        await self.repo.refund_hold(key, amount)
+
     # ── Usage recording ───────────────────────────────────────────────────
 
     async def record_usage(
@@ -79,8 +95,14 @@ class BillingService:
         duration_ms: int = 0,
         status: str = "success",
         error_message: str | None = None,
+        held_amount: float = 0.0,
     ) -> float:
-        """Record usage, calculate cost, deduct balance. Returns the cost."""
+        """Record usage, calculate cost, deduct balance. Returns the cost.
+
+        If *held_amount* > 0 the caller has already frozen that amount via
+        ``hold_balance``.  We settle the difference instead of doing a fresh
+        deduction.
+        """
         cost = calculate_cost(
             model,
             prompt_tokens=prompt_tokens,
@@ -90,9 +112,17 @@ class BillingService:
             endpoint=endpoint,
         )
 
-        # Deduct from balance
+        # Deduct / settle
         deducted = False
-        if cost > 0:
+        if held_amount > 0:
+            # Pre-hold path: settle the difference
+            await self.repo.settle_hold(key_record.key, held_amount, cost)
+            deducted = True
+            logger.debug(
+                "billing settled hold: key={}... held={} actual={} diff={}",
+                key_record.key[:8], held_amount, cost, held_amount - cost,
+            )
+        elif cost > 0:
             deducted = await self.repo.deduct_balance(key_record.key, cost)
             if not deducted:
                 logger.warning(

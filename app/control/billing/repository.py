@@ -205,6 +205,51 @@ class BillingRepository:
         await self.db.commit()
         return updated
 
+    async def hold_balance(self, key: str, amount: float) -> bool:
+        """Atomically hold (freeze) balance before a long-running generation.
+
+        Deducts ``amount`` from balance upfront.  Returns True if the hold
+        succeeded, False if balance was insufficient.  The caller must later
+        call ``settle_hold`` to reconcile actual vs. held cost.
+        """
+        if amount <= 0:
+            return True
+        async with self.db.execute(
+            "UPDATE api_keys SET balance = balance - ? "
+            "WHERE key = ? AND balance >= ?",
+            (amount, key, amount),
+        ) as cur:
+            held = cur.rowcount > 0
+        await self.db.commit()
+        return held
+
+    async def settle_hold(self, key: str, held: float, actual: float) -> None:
+        """Settle a previous hold: refund overpayment or charge the shortfall.
+
+        - held > actual → refund (held - actual) to balance
+        - held < actual → charge extra (actual - held) from balance
+        - held == actual → only record total_charged
+
+        ``total_charged`` is always incremented by ``actual``.
+        """
+        diff = held - actual  # positive = refund, negative = extra charge
+        await self.db.execute(
+            "UPDATE api_keys SET balance = balance + ?, "
+            "total_charged = total_charged + ? WHERE key = ?",
+            (diff, actual, key),
+        )
+        await self.db.commit()
+
+    async def refund_hold(self, key: str, amount: float) -> None:
+        """Fully refund a hold (e.g. when generation failed)."""
+        if amount <= 0:
+            return
+        await self.db.execute(
+            "UPDATE api_keys SET balance = balance + ? WHERE key = ?",
+            (amount, key),
+        )
+        await self.db.commit()
+
     # ── Usage Log ─────────────────────────────────────────────────────────
 
     async def insert_log(self, log: UsageLog) -> None:

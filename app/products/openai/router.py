@@ -260,6 +260,8 @@ async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest
             code="model_not_found",
         )
     messages = [m.model_dump(exclude_none=True) for m in req.messages]
+    _vs = 0        # video seconds (set in video branch)
+    _vr = "720p"   # video resolution (set in video branch)
 
     try:
         # Dispatch by model capability.
@@ -314,11 +316,17 @@ async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest
             from .video import validate_video_length as _validate_video_length
 
             _validate_video_length(vcfg.seconds or 6)
+            _vs = vcfg.seconds or 6
+            _vr = (vcfg.resolution_name or "720p") if vcfg else "720p"
+
+            # Pre-hold balance before starting video generation
+            await _billing_hold_video(request, req.model, _vs, _vr)
+
             result = await vid_comp(
                 model=req.model,
                 messages=messages,
                 stream=is_stream,
-                seconds=vcfg.seconds or 6,
+                seconds=_vs,
                 size=vcfg.size or "720x1280",
                 resolution_name=vcfg.resolution_name,
                 preset=vcfg.preset,
@@ -346,8 +354,31 @@ async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest
             )
 
     except AppError:
+        # Refund any pre-hold on error
+        _hold = getattr(request.state, "billing_hold", 0.0)
+        if _hold > 0:
+            request.state.billing_hold = 0.0
+            from app.control.billing.service import get_billing_service as _get_bs
+            _bs = _get_bs()
+            if _bs:
+                billing_key = getattr(request.state, "billing_key", None)
+                if billing_key:
+                    asyncio.create_task(_bs.refund_hold(billing_key.key, _hold))
+                    logger.info("billing hold refunded on AppError: key={}... amount={}", billing_key.key[:8], _hold)
         raise
     except Exception as exc:
+        # Refund any pre-hold on error
+        _hold = getattr(request.state, "billing_hold", 0.0)
+        if _hold > 0:
+            request.state.billing_hold = 0.0
+            from app.control.billing.service import get_billing_service as _get_bs
+            _bs = _get_bs()
+            if _bs:
+                billing_key = getattr(request.state, "billing_key", None)
+                if billing_key:
+                    asyncio.create_task(_bs.refund_hold(billing_key.key, _hold))
+                    logger.info("billing hold refunded on error: key={}... amount={}", billing_key.key[:8], _hold)
+
         logger.exception(
             "chat completions endpoint failed: model={} stream={} error={}",
             req.model,
@@ -378,11 +409,19 @@ async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest
 
     if isinstance(result, dict):
         _billing_record_from_result(request, result, req.model, "chat", _start_time,
-                                    video_seconds=(req.video_config.seconds or 6) if spec.is_video() and req.video_config else 0,
-                                    video_resolution=((req.video_config.resolution_name or "720p") if req.video_config else "720p") if spec.is_video() else "720p")
+                                    video_seconds=_vs if spec.is_video() else 0,
+                                    video_resolution=_vr if spec.is_video() else "720p")
         return JSONResponse(result)
     return StreamingResponse(
-        _sse_with_heartbeat(_safe_sse(result)),
+        _billing_sse_wrapper(
+            _sse_with_heartbeat(_safe_sse(result)),
+            request=request,
+            model=req.model,
+            endpoint="chat",
+            start_time=_start_time,
+            video_seconds=_vs if spec.is_video() else 0,
+            video_resolution=_vr if spec.is_video() else "720p",
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -466,7 +505,13 @@ async def responses_endpoint(request: Request, req: ResponsesCreateRequest):
         _billing_record_from_result(request, result, req.model, "responses", _start_time)
         return JSONResponse(result)
     return StreamingResponse(
-        _sse_with_heartbeat(_safe_sse_responses(result)),
+        _billing_sse_wrapper(
+            _sse_with_heartbeat(_safe_sse_responses(result)),
+            request=request,
+            model=req.model,
+            endpoint="responses",
+            start_time=_start_time,
+        ),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )
@@ -548,17 +593,37 @@ async def videos_create(
         references_payload = refs[:5]
 
     _start_time = time.monotonic()
-    _check_billing_model_access(request, model or "grok-video")
-    result = await create_video(
-        model=model or "grok-video",
-        prompt=prompt,
-        seconds=seconds,
-        size=size or "720x1280",
-        resolution_name=resolution_name,
-        preset=preset,
-        input_references=references_payload,
-    )
-    _billing_record_from_result(request, result, model or "grok-video", "video", _start_time, video_seconds=seconds, video_resolution=resolution_name or "720p")
+    _model = model or "grok-video"
+    _res = resolution_name or "720p"
+    _check_billing_model_access(request, _model)
+
+    # Pre-hold balance before starting video generation
+    await _billing_hold_video(request, _model, seconds, _res)
+
+    try:
+        result = await create_video(
+            model=_model,
+            prompt=prompt,
+            seconds=seconds,
+            size=size or "720x1280",
+            resolution_name=resolution_name,
+            preset=preset,
+            input_references=references_payload,
+        )
+    except Exception:
+        # Refund pre-hold on generation failure
+        _hold = getattr(request.state, "billing_hold", 0.0)
+        if _hold > 0:
+            request.state.billing_hold = 0.0
+            from app.control.billing.service import get_billing_service as _get_bs
+            _bs = _get_bs()
+            if _bs:
+                billing_key = getattr(request.state, "billing_key", None)
+                if billing_key:
+                    await _bs.refund_hold(billing_key.key, _hold)
+                    logger.info("billing hold refunded on video error: key={}... amount={}", billing_key.key[:8], _hold)
+        raise
+    _billing_record_from_result(request, result, _model, "video", _start_time, video_seconds=seconds, video_resolution=_res)
     return JSONResponse(result)
 
 
@@ -751,6 +816,48 @@ def _check_billing_model_access(request: Request, model: str) -> None:
         )
 
 
+async def _billing_hold_video(
+    request: Request,
+    model: str,
+    video_seconds: int,
+    video_resolution: str = "720p",
+) -> float:
+    """Pre-hold balance for a video generation request.
+
+    Returns the held amount (0.0 if billing is not applicable).
+    Raises HTTP 402 if balance is insufficient for the estimated cost.
+    """
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is None:
+        return 0.0  # admin key, no billing
+
+    from app.control.billing.service import get_billing_service
+    from app.control.billing.pricing import video_cost
+
+    svc = get_billing_service()
+    if svc is None:
+        return 0.0
+
+    estimated = video_cost(video_seconds, resolution=video_resolution)
+    if estimated <= 0:
+        return 0.0
+
+    held = await svc.hold_balance(billing_key.key, estimated)
+    if not held:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            f"Insufficient balance for video generation (estimated cost: ${estimated:.4f}).",
+        )
+
+    logger.info(
+        "billing hold placed: key={}... model={} seconds={} hold={}",
+        billing_key.key[:8], model, video_seconds, estimated,
+    )
+    request.state.billing_hold = estimated
+    return estimated
+
+
 def _billing_record_from_result(
     request: Request,
     result: dict,
@@ -774,6 +881,9 @@ def _billing_record_from_result(
     usage = result.get("usage", {})
     request_id = result.get("id", "")
     duration_ms = int((time.monotonic() - start_time) * 1000)
+    held = getattr(request.state, "billing_hold", 0.0)
+    # Clear hold so it isn't used again
+    request.state.billing_hold = 0.0
 
     asyncio.create_task(
         svc.record_usage(
@@ -786,6 +896,7 @@ def _billing_record_from_result(
             video_resolution=video_resolution,
             request_id=request_id,
             duration_ms=duration_ms,
+            held_amount=held,
         )
     )
 
@@ -819,6 +930,99 @@ def _billing_record_image(
             duration_ms=duration_ms,
         )
     )
+
+
+async def _billing_sse_wrapper(
+    stream: AsyncIterable[str],
+    *,
+    request: Request,
+    model: str,
+    endpoint: str,
+    start_time: float,
+    video_seconds: int = 0,
+    video_resolution: str = "720p",
+) -> AsyncGenerator[str, None]:
+    """Wrap a finished SSE stream to record billing after all chunks are sent.
+
+    Extracts ``usage`` from the last data chunk (if the upstream provides it)
+    and fires an async billing record.  For video models the cost is driven by
+    ``video_seconds`` rather than token counts.
+
+    If a pre-hold was placed (``request.state.billing_hold > 0``), the hold
+    amount is passed to ``record_usage`` for settlement.  On error the hold
+    is fully refunded.
+    """
+    prompt_tokens = 0
+    completion_tokens = 0
+    saw_error = False
+
+    async for chunk in stream:
+        yield chunk
+
+        # Detect in-band errors (we should not bill for failed requests)
+        if "event: error" in chunk:
+            saw_error = True
+
+        # Try to capture usage from SSE data lines
+        for line in chunk.split("\n"):
+            if line.startswith("data: ") and line.strip() != "data: [DONE]":
+                try:
+                    data = orjson.loads(line[6:].strip())
+                    usage = data.get("usage")
+                    if isinstance(usage, dict):
+                        prompt_tokens = usage.get("prompt_tokens", 0) or 0
+                        completion_tokens = usage.get("completion_tokens", 0) or 0
+                except Exception:
+                    pass
+
+    # Retrieve any pre-hold amount
+    held = getattr(request.state, "billing_hold", 0.0)
+    request.state.billing_hold = 0.0  # consume it
+
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is None:
+        return
+
+    from app.control.billing.service import get_billing_service
+    svc = get_billing_service()
+    if svc is None:
+        return
+
+    # Stream completed with error — refund the hold, do not bill
+    if saw_error:
+        if held > 0:
+            try:
+                await svc.refund_hold(billing_key.key, held)
+                logger.info(
+                    "billing hold refunded on stream error: key={}... amount={}",
+                    billing_key.key[:8], held,
+                )
+            except Exception as exc:
+                logger.warning("billing hold refund failed: error={}", exc)
+        return
+
+    duration_ms = int((time.monotonic() - start_time) * 1000)
+    try:
+        await svc.record_usage(
+            billing_key,
+            model=model,
+            endpoint=endpoint,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            video_seconds=video_seconds,
+            video_resolution=video_resolution,
+            request_id="",
+            duration_ms=duration_ms,
+            held_amount=held,
+        )
+    except Exception as exc:
+        logger.warning("streaming billing record failed: model={} error={}", model, exc)
+        # Best-effort refund if record_usage itself failed and hold was placed
+        if held > 0:
+            try:
+                await svc.refund_hold(billing_key.key, held)
+            except Exception:
+                pass
 
 
 __all__ = ["router"]
