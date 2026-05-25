@@ -105,6 +105,9 @@ class _VideoJob:
     remixed_from_video_id: str | None = None
     video_url: str = ""
     content_path: str = ""
+    # Billing context — only set when a billing key placed a pre-hold
+    billing_key: Any = None       # ApiKeyRecord or None
+    billing_hold: float = 0.0     # pre-held amount
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -1093,6 +1096,7 @@ async def _run_video_job(
     preset: str | None,
     input_references: list[dict[str, Any]] | None = None,
 ) -> None:
+    _job_success = False
     try:
         await _set_job_status(job, status="in_progress", progress=1)
         aspect_ratio, default_resolution_name = _resolve_video_size(size)
@@ -1199,11 +1203,83 @@ async def _run_video_job(
             job.video_url = artifact.video_url
             job.content_path = str(path)
             job.remixed_from_video_id = artifact.remixed_from_video_id
+        _job_success = True
     except Exception as exc:
         logger.exception("video job failed: job_id={} error={}", job.id, exc)
         async with _VIDEO_JOBS_LOCK:
             job.status = "failed"
             job.error = _job_error_payload(str(exc))
+    finally:
+        # ── Billing: settle on success, refund on failure ──────────────
+        await _settle_video_job_billing(job, success=_job_success)
+
+
+async def _settle_video_job_billing(job: _VideoJob, *, success: bool) -> None:
+    """Settle or refund the pre-held billing amount for an async video job.
+
+    Called from ``_run_video_job`` *after* the job reaches a terminal state.
+    - **success** → settle the hold and record a usage log.
+    - **failure** → fully refund the held amount, record a $0 failed log.
+    """
+    billing_key = job.billing_key
+    held = job.billing_hold
+    if billing_key is None or held <= 0:
+        return  # admin key or no hold placed
+
+    from app.control.billing.service import get_billing_service
+    svc = get_billing_service()
+    if svc is None:
+        return
+
+    video_seconds = int(job.seconds) if job.seconds.isdigit() else 6
+
+    if success:
+        # Settle: record actual cost and reconcile the hold
+        try:
+            await svc.record_usage(
+                billing_key,
+                model=job.model,
+                endpoint="video",
+                video_seconds=video_seconds,
+                video_resolution="720p",
+                request_id=job.id,
+                duration_ms=int((time.time() - job.created_at) * 1000) if job.created_at else 0,
+                held_amount=held,
+            )
+            logger.info(
+                "billing settled for video job: job_id={} key={}... held={}",
+                job.id, billing_key.key[:8], held,
+            )
+        except Exception as exc:
+            logger.warning("billing settle failed for video job {}: error={}", job.id, exc)
+    else:
+        # Refund the full held amount
+        try:
+            await svc.refund_hold(billing_key.key, held)
+            logger.info(
+                "billing hold refunded for failed video job: job_id={} key={}... amount={}",
+                job.id, billing_key.key[:8], held,
+            )
+        except Exception as exc:
+            logger.warning("billing refund failed for video job {}: error={}", job.id, exc)
+        # Also record a $0 failed usage log for auditing
+        try:
+            from app.control.billing.models import UsageLog
+            log = UsageLog(
+                api_key=billing_key.key,
+                key_name=billing_key.name,
+                request_id=job.id,
+                model=job.model,
+                endpoint="video",
+                video_seconds=video_seconds,
+                cost=0.0,
+                status="failed",
+                error_message=str(job.error.get("message", "")) if job.error else "unknown",
+                duration_ms=int((time.time() - job.created_at) * 1000) if job.created_at else 0,
+            )
+            await svc.repo.insert_log(log)
+        except Exception as exc:
+            logger.warning("billing failed log insert error for video job {}: error={}", job.id, exc)
 
 
 async def create_video(
@@ -1215,6 +1291,8 @@ async def create_video(
     resolution_name: str | None = None,
     preset: str | None = None,
     input_references: list[dict[str, Any]] | None = None,
+    billing_key: Any = None,
+    billing_hold: float = 0.0,
 ) -> dict[str, Any]:
     spec = model_registry.get(model)
     if spec is None or not spec.enabled or not spec.is_video():
@@ -1239,6 +1317,8 @@ async def create_video(
         size=normalized_size,
         quality=_VIDEO_QUALITY,
         created_at=int(time.time()),
+        billing_key=billing_key,
+        billing_hold=billing_hold,
     )
     await _put_video_job(job)
     asyncio.create_task(

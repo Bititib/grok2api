@@ -592,13 +592,16 @@ async def videos_create(
     if refs:
         references_payload = refs[:5]
 
-    _start_time = time.monotonic()
     _model = model or "grok-video"
     _res = resolution_name or "720p"
     _check_billing_model_access(request, _model)
 
     # Pre-hold balance before starting video generation
     await _billing_hold_video(request, _model, seconds, _res)
+
+    # Capture billing info to pass into the async job
+    _billing_key = getattr(request.state, "billing_key", None)
+    _hold = getattr(request.state, "billing_hold", 0.0)
 
     try:
         result = await create_video(
@@ -609,21 +612,24 @@ async def videos_create(
             resolution_name=resolution_name,
             preset=preset,
             input_references=references_payload,
+            billing_key=_billing_key,
+            billing_hold=_hold,
         )
     except Exception:
-        # Refund pre-hold on generation failure
-        _hold = getattr(request.state, "billing_hold", 0.0)
+        # Refund pre-hold on synchronous validation failure
+        # (create_video raises before spawning the async job)
         if _hold > 0:
             request.state.billing_hold = 0.0
             from app.control.billing.service import get_billing_service as _get_bs
             _bs = _get_bs()
-            if _bs:
-                billing_key = getattr(request.state, "billing_key", None)
-                if billing_key:
-                    await _bs.refund_hold(billing_key.key, _hold)
-                    logger.info("billing hold refunded on video error: key={}... amount={}", billing_key.key[:8], _hold)
+            if _bs and _billing_key:
+                await _bs.refund_hold(_billing_key.key, _hold)
+                logger.info("billing hold refunded on video validation error: key={}... amount={}", _billing_key.key[:8], _hold)
         raise
-    _billing_record_from_result(request, result, _model, "video", _start_time, video_seconds=seconds, video_resolution=_res)
+
+    # Billing is NOT recorded here — the async _run_video_job handles
+    # settle-on-success / refund-on-failure to avoid charging for failed jobs.
+    request.state.billing_hold = 0.0  # consumed by async job
     return JSONResponse(result)
 
 
