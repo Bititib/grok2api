@@ -20,7 +20,6 @@
     "header": {
       "chat": "Chat",
       "masonry": "Masonry",
-      "video": "Vidéo",
       "chatkit": "ChatKit"
     },
     "chat": {
@@ -126,32 +125,6 @@
         "requestFailed": "Échec de la requête",
         "initFailed": "Échec de l’initialisation de la page Masonry"
       }
-    },
-    "video": {
-      "pageTitle": "Grok2API - Vidéo",
-      "title": "Vidéo",
-      "sizeLabel": "Format",
-      "durationLabel": "Durée",
-      "presetCustom": "Personnalisé",
-      "presetFun": "Fun",
-      "presetNormal": "Normal",
-      "presetSpicy": "Épicé",
-      "promptPlaceholder": "Décrivez la vidéo souhaitée. Entrée pour générer, Shift+Entrée pour une nouvelle ligne.",
-      "generate": "Générer",
-      "stop": "Arrêter",
-      "openVideo": "Ouvrir la vidéo",
-      "statusGenerating": "Génération",
-      "statusSuccess": "Succès",
-      "statusFailed": "Échec",
-      "statusStopped": "Arrêté",
-      "emptyTitle": "Générer une vidéo à partir d'un prompt",
-      "emptyText": "Saisissez une description et cliquez sur générer. Votre vidéo apparaîtra ici.",
-      "errors": {
-        "enterPrompt": "Veuillez saisir un prompt",
-        "requestFailed": "Échec de la requête",
-        "connectionFailed": "Échec de la connexion",
-        "initFailed": "Échec de l'initialisation de la page vidéo"
-      }
     }
   },
   "header": {
@@ -189,6 +162,7 @@
     "statInvalid": "Anormaux",
     "statDisabled": "Désactivés",
     "statCalls": "Appels totaux",
+    "statSuccessTotal": "Succès totaux",
     "statAuto": "Solde Auto",
     "statFast": "Solde Fast",
     "statExpert": "Solde Expert",
@@ -322,7 +296,8 @@
       "auto": "Auto",
       "fast": "Fast",
       "expert": "Expert",
-      "heavy": "Heavy"
+      "heavy": "Heavy",
+      "grok_4_3": "Grok 4.3 Beta"
     },
     "status": {
       "active": "Actif",
@@ -361,6 +336,7 @@
         "features": "Fonctionnalités",
         "schedule": "Planification",
         "proxy": "Réseau",
+        "cache": "Stockage du cache",
         "image": "Pipeline d’image"
       },
       "groups": {
@@ -368,12 +344,15 @@
         "features": "Fonctionnalités principales",
         "mediaFormat": "Sortie multimédia",
         "refreshSchedule": "Actualisation du quota",
+        "selection": "Concurrence de sélection",
         "batchConcurrency": "Concurrence par lot",
         "egressProxy": "Proxy sortant",
         "clearance": "Cloudflare Clearance",
         "retry": "Politique de reprise",
         "timeouts": "Délais d’attente",
-        "imageProtocol": "NSFW et streaming d’images"
+        "imageProtocol": "NSFW et streaming d'images",
+        "logging": "Journalisation",
+        "localMediaCache": "Cache multimédia local"
       },
       "options": {
         "imageFormat": {
@@ -401,164 +380,6 @@
         }
       },
       "fields": {
-<<<<<<< HEAD
-        "appUrl": {
-          "label": "URL de base APP"
-        },
-        "appKey": {
-          "label": "Mot de passe d’accès APP"
-        },
-        "apiKey": {
-          "label": "Clé d’accès API"
-        },
-        "webuiEnabled": {
-          "label": "Activer WebUI"
-        },
-        "webuiKey": {
-          "label": "Mot de passe d’accès WebUI"
-        },
-        "temporary": {
-          "label": "Sessions temporaires"
-        },
-        "memory": {
-          "label": "Mémoire conversationnelle"
-        },
-        "stream": {
-          "label": "Streaming par défaut"
-        },
-        "thinking": {
-          "label": "Sortie de raisonnement par défaut"
-        },
-        "thinkingSummary": {
-          "label": "Raisonnement condensé"
-        },
-        "dynamicStatsig": {
-          "label": "Statsig dynamique"
-        },
-        "enableNsfw": {
-          "label": "Autoriser la génération NSFW"
-        },
-        "customInstruction": {
-          "label": "Instruction globale supplémentaire"
-        },
-        "imageFormat": {
-          "label": "Format de sortie image"
-        },
-        "videoFormat": {
-          "label": "Format de sortie vidéo"
-        },
-        "basicInterval": {
-          "label": "Intervalle d’actualisation Basic (s)"
-        },
-        "superInterval": {
-          "label": "Intervalle d’actualisation Super (s)"
-        },
-        "heavyInterval": {
-          "label": "Intervalle d’actualisation Heavy (s)"
-        },
-        "usageConcurrency": {
-          "label": "Concurrence d’actualisation"
-        },
-        "onDemandMinInterval": {
-          "label": "Intervalle minimal à la demande (s)"
-        },
-        "nsfwConcurrency": {
-          "label": "Concurrence d’activation NSFW"
-        },
-        "refreshConcurrency": {
-          "label": "Concurrence d’actualisation Usage"
-        },
-        "assetUploadConcurrency": {
-          "label": "Concurrence d’envoi Asset"
-        },
-        "assetListConcurrency": {
-          "label": "Concurrence de listage Asset"
-        },
-        "assetDeleteConcurrency": {
-          "label": "Concurrence de suppression Asset"
-        },
-        "proxyMode": {
-          "label": "Mode proxy"
-        },
-        "proxyUrl": {
-          "label": "URL du proxy principal"
-        },
-        "resourceProxyUrl": {
-          "label": "URL du proxy de ressources"
-        },
-        "proxyPool": {
-          "label": "Pool de proxys principal"
-        },
-        "resourceProxyPool": {
-          "label": "Pool de proxys de ressources"
-        },
-        "skipSslVerify": {
-          "label": "Ignorer la vérification SSL"
-        },
-        "clearanceMode": {
-          "label": "Mode Clearance"
-        },
-        "browserFingerprint": {
-          "label": "Empreinte navigateur"
-        },
-        "userAgent": {
-          "label": "User-Agent"
-        },
-        "cfCookies": {
-          "label": "Cookies Cloudflare"
-        },
-        "flaresolverrUrl": {
-          "label": "URL FlareSolverr"
-        },
-        "challengeTimeout": {
-          "label": "Délai du challenge (s)"
-        },
-        "refreshInterval": {
-          "label": "Intervalle d’actualisation (s)"
-        },
-        "maxRetries": {
-          "label": "Limite de reprise de compte"
-        },
-        "retryCodes": {
-          "label": "Codes d’état de reprise"
-        },
-        "resetSessionCodes": {
-          "label": "Codes d’état de réinitialisation de session"
-        },
-        "chatTimeout": {
-          "label": "Délai d’attente chat (s)"
-        },
-        "imageTimeout": {
-          "label": "Délai d’attente image (s)"
-        },
-        "videoTimeout": {
-          "label": "Délai d’attente vidéo (s)"
-        },
-        "voiceTimeout": {
-          "label": "Délai d’attente voix (s)"
-        },
-        "nsfwTimeout": {
-          "label": "Délai d’attente NSFW (s)"
-        },
-        "assetUploadTimeout": {
-          "label": "Délai d’envoi Asset (s)"
-        },
-        "assetDownloadTimeout": {
-          "label": "Délai de téléchargement Asset (s)"
-        },
-        "assetListTimeout": {
-          "label": "Délai de listage Asset (s)"
-        },
-        "assetDeleteTimeout": {
-          "label": "Délai de suppression Asset (s)"
-        },
-        "streamTimeout": {
-          "label": "Délai d’inactivité du streaming (s)"
-        },
-        "interRoundWait": {
-          "label": "Attente inter-cycle (s)"
-        }
-=======
         "appUrl": { "label": "URL de base APP" },
         "appKey": { "label": "Mot de passe d’accès APP" },
         "apiKey": { "label": "Clé d’accès API" },
@@ -620,19 +441,20 @@
         "interRoundWait": { "label": "Attente inter-cycle (s)" },
         "fileLogLevel": { "label": "Niveau de journal fichier", "desc": "Niveau minimum écrit dans les fichiers de journal, configurable indépendamment de la console. Par défaut : INFO." },
         "logMaxFiles": { "label": "Rétention des journaux (jours)", "desc": "Nombre maximum de fichiers de journal quotidiens conservés lors de la rotation. Par défaut : 7." }
->>>>>>> upstream/main
       }
     }
   },
   "cache": {
     "pageTitle": "Grok2API - Gestion du Cache",
     "pageHeading": "Gestion du Cache",
-    "pageSubtitle": "Consultez et gérez les fichiers de cache locaux et les actifs en ligne des comptes.",
+    "pageSubtitle": "Consultez et gérez les fichiers de cache locaux, les limites de stockage et les actifs en ligne des comptes.",
     "sectionOverview": "Vue d’ensemble",
     "statImageCount": "Fichiers de cache image",
     "statImageSize": "Taille du cache image",
     "statVideoCount": "Fichiers de cache vidéo",
     "statVideoSize": "Taille du cache vidéo",
+    "usageSummaryUnlimited": "Utilisé {used} · Illimité",
+    "usageSummaryLimited": "Utilisé {used} / {limit} · {percent}",
     "sectionDetails": "Détails",
     "tabLocal": "Cache local",
     "tabLocalImage": "Images locales",

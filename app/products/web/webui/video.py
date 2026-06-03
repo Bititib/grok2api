@@ -141,7 +141,6 @@ async def video_ws(websocket: WebSocket):
                 preset=resolved_preset,
                 input_references=input_references,
                 progress_cb=_progress_cb,
-                download_local=True,
             )
 
             await _send({
