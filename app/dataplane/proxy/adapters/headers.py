@@ -64,21 +64,6 @@ def _sanitize(value: Optional[str], *, field: str, strip_spaces: bool = False) -
 
 
 def _statsig_id() -> str:
-<<<<<<< HEAD
-    cfg = get_config()
-    if cfg.get_bool("features.dynamic_statsig", False):
-        if random.choice((True, False)):
-            rand = "".join(random.choices(string.ascii_lowercase + string.digits, k=5))
-            msg = f"x1:TypeError: Cannot read properties of null (reading 'children['{rand}']')"
-        else:
-            rand = "".join(random.choices(string.ascii_lowercase, k=10))
-            msg = f"x1:TypeError: Cannot read properties of undefined (reading '{rand}')"
-        return base64.b64encode(msg.encode()).decode()
-    return (
-        "eDE6VHlwZUVycm9yOiBDYW5ub3QgcmVhZCBwcm9wZXJ0aWVzIG9mIHVuZGVmaW5lZCAocmVhZGlu"
-        "ZyAnY2hpbGROb2Rlcycp"
-    )
-=======
     """Generate a Statsig evaluation fallback ID.
 
     The real browser's fetch interceptor tries to evaluate Statsig gates for
@@ -97,7 +82,6 @@ def _statsig_id() -> str:
         rand = "".join(random.choices(string.ascii_lowercase, k=10))
         msg = f"x1:TypeError: Cannot read properties of undefined (reading '{rand}')"
     return base64.b64encode(msg.encode()).decode()
->>>>>>> upstream/main
 
 
 # ---------------------------------------------------------------------------
