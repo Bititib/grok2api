@@ -29,8 +29,16 @@ from app.control.model.registry import resolve as resolve_model
 from app.dataplane.proxy import get_proxy_runtime
 from app.dataplane.proxy.adapters.headers import build_http_headers
 from app.dataplane.proxy.adapters.session import ResettableSession, build_session_kwargs
+<<<<<<< HEAD
 from app.dataplane.reverse.protocol.xai_assets import resolve_asset_reference, resolve_download_url
 from app.dataplane.reverse.protocol.xai_chat import classify_line
+=======
+from app.dataplane.reverse.protocol.xai_assets import (
+    resolve_asset_reference,
+    resolve_download_url,
+)
+from app.dataplane.reverse.protocol.xai_chat import classify_line, raise_for_stream_error
+>>>>>>> upstream/main
 from app.dataplane.reverse.runtime.endpoint_table import CHAT
 from app.dataplane.reverse.transport.asset_upload import (
     resolve_uploaded_asset_reference,
@@ -155,6 +163,7 @@ def _progress_reason(progress: int) -> str:
     return f"视频正在生成 {max(0, min(100, int(progress)))}%"
 
 
+<<<<<<< HEAD
 # ---------------------------------------------------------------------------
 # Prompt splitter for multi-segment generation
 # ---------------------------------------------------------------------------
@@ -317,6 +326,10 @@ def _distribute_parts(
             seg_prompt = (header + "\n继续上一段的内容，自然延伸画面。").strip() if header else "继续上一段的内容，自然延伸画面。"
         result.append(seg_prompt)
     return result
+=======
+def _progress_reason_delta(progress: int) -> str:
+    return _progress_reason(progress) + "\n"
+>>>>>>> upstream/main
 
 
 def _coerce_seconds(value: str | int | None) -> int:
@@ -415,8 +428,12 @@ def _video_create_payload(
     payload: dict[str, Any] = {
         "temporary": True,
         "modelName": _VIDEO_MODEL_NAME,
+<<<<<<< HEAD
         "message": _build_message(prompt, preset, reference_file_ids=reference_file_ids),
         "toolOverrides": {"videoGen": True},
+=======
+        "message": _build_message(prompt, preset),
+>>>>>>> upstream/main
         "enableSideBySide": True,
         "responseMetadata": {
             "experiments": [],
@@ -456,7 +473,6 @@ def _video_extend_payload(
         "temporary": True,
         "modelName": _VIDEO_MODEL_NAME,
         "message": _build_message(prompt, preset),
-        "toolOverrides": {"videoGen": True},
         "enableSideBySide": True,
         "responseMetadata": {
             "experiments": [],
@@ -617,10 +633,75 @@ async def _prepare_video_reference(token: str, input_reference: dict[str, Any]) 
         except Exception as exc:
             raise UpstreamError(f"Video input reference upload failed: {exc}") from exc
 
+<<<<<<< HEAD
     # Official grok.com does NOT create a media post per reference image.
     # All references are passed via fileAttachments + imageReferences in the payload.
     logger.info("prepared video reference: file_id={}", ref_file_id)
     return _VideoReference(content_url=content_url, post_id="", file_id=ref_file_id)
+=======
+    post = await create_media_post(
+        token,
+        media_type=_IMAGE_MEDIA_TYPE,
+        media_url=content_url,
+        prompt="",
+        referer="https://grok.com/imagine",
+    )
+    post_data = post.get("post")
+    if not isinstance(post_data, dict):
+        raise UpstreamError(
+            "Video image reference create-post returned no post payload"
+        )
+    post_id = str(post_data.get("id") or "").strip()
+    if not post_id:
+        raise UpstreamError("Video image reference create-post returned no post id")
+    return _VideoReference(content_url=content_url, post_id=post_id)
+
+
+async def _prepare_video_references(
+    token: str,
+    input_references: list[dict[str, Any]],
+) -> list[_VideoReference]:
+    """Upload multiple video references concurrently and preserve order."""
+    tasks = [
+        _prepare_video_reference(token, ref)
+        for ref in input_references
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    failures: list[tuple[int, BaseException]] = [
+        (index, result)
+        for index, result in enumerate(results)
+        if isinstance(result, BaseException)
+    ]
+    if failures:
+        index, exc = failures[0]
+        message = f"Video input reference {index + 1} failed: {_exception_message(exc)}"
+        if len(failures) > 1:
+            message += f" ({len(failures)} references failed)"
+        if isinstance(exc, ValidationError):
+            raise ValidationError(message, param=exc.param) from exc
+        if isinstance(exc, UpstreamError):
+            raise UpstreamError(
+                message,
+                status=exc.status,
+                body=exc.details.get("body", ""),
+            ) from exc
+        raise UpstreamError(message) from exc
+
+    return [r for r in results if isinstance(r, _VideoReference)]
+
+
+def _exception_message(exc: BaseException) -> str:
+    if isinstance(exc, BaseExceptionGroup):
+        messages = [
+            _exception_message(child)
+            for child in exc.exceptions
+            if not isinstance(child, asyncio.CancelledError)
+        ]
+        return "; ".join(message for message in messages if message) or str(exc)
+    if isinstance(exc, AppError):
+        return exc.message
+    return str(exc)
+>>>>>>> upstream/main
 
 
 async def _collect_video_segment(
@@ -636,6 +717,7 @@ async def _collect_video_segment(
     final_asset_id = ""
     final_thumbnail = ""
     video_post_id = ""
+    stream_data_items: list[str] = []
 
     async for line in _stream_video_request(
         token,
@@ -657,10 +739,12 @@ async def _collect_video_segment(
 
         if event_type != "data" or not data:
             continue
+        stream_data_items.append(data)
         try:
             obj = orjson.loads(data)
         except Exception:
             continue
+        raise_for_stream_error(obj)
 
         if obj.get("error"):
             err_msg = obj.get("error", {}).get("message") or obj.get("message") or str(obj)
@@ -725,9 +809,19 @@ async def _collect_video_segment(
             )
 
     if not final_url and final_asset_id:
+<<<<<<< HEAD
         raise UpstreamError("Video segment returned only assetId without a resolvable URL")
+=======
+        raise UpstreamError(
+            "Video segment returned only assetId without a resolvable URL",
+            body="\n".join(stream_data_items),
+        )
+>>>>>>> upstream/main
     if not final_url:
-        raise UpstreamError("Video generation returned no final video URL")
+        raise UpstreamError(
+            "Video generation returned no final video URL",
+            body="\n".join(stream_data_items),
+        )
 
     return _VideoArtifact(
         video_url=final_url,
@@ -747,7 +841,12 @@ async def _download_video_bytes(token: str, url: str) -> tuple[bytes, str]:
         raise
     except Exception as exc:
         raise UpstreamError(f"Video download failed: {exc}") from exc
-    return b"".join(chunks), (content_type or "video/mp4")
+    raw = b"".join(chunks)
+    if not raw:
+        raise UpstreamError("Video download returned empty content", status=502)
+    if raw.lstrip()[:1] in {b"<", b"{"}:
+        raise UpstreamError("Video download returned non-video content", status=502)
+    return raw, (content_type or "video/mp4")
 
 
 def _save_video_bytes(raw: bytes, file_id: str) -> Path:
@@ -789,7 +888,7 @@ async def _resolve_video_output(*, token: str, url: str, file_id: str) -> str:
         raw, _mime = await _download_video_bytes(token, url)
         _save_video_bytes(raw, file_id)
     except Exception as exc:
-        logger.warning("video download failed: fallback_to=upstream_url error={}", exc)
+        logger.debug("video download fallback_to=upstream_url error={}", exc)
         return url if fmt == "local_url" else _render_video_html(url)
 
     local_url = _local_video_url(file_id)
@@ -1208,6 +1307,7 @@ async def _run_video_job(
         logger.exception("video job failed: job_id={} error={}", job.id, exc)
         async with _VIDEO_JOBS_LOCK:
             job.status = "failed"
+<<<<<<< HEAD
             job.error = _job_error_payload(str(exc))
     finally:
         # ── Billing: settle on success, refund on failure ──────────────
@@ -1280,6 +1380,9 @@ async def _settle_video_job_billing(job: _VideoJob, *, success: bool) -> None:
             await svc.repo.insert_log(log)
         except Exception as exc:
             logger.warning("billing failed log insert error for video job {}: error={}", job.id, exc)
+=======
+            job.error = _job_error_payload(_exception_message(exc))
+>>>>>>> upstream/main
 
 
 async def create_video(
@@ -1406,10 +1509,17 @@ def _extract_video_prompt_and_reference(messages: list[dict]) -> tuple[str, dict
     if not prompt:
         raise ValidationError("Video prompt cannot be empty", param="messages")
 
+<<<<<<< HEAD
     input_reference: dict[str, Any] | None = None
     if reference_url:
         input_reference = {"image_url": reference_url}
     return prompt, input_reference
+=======
+    input_references: list[dict[str, Any]] | None = None
+    if reference_urls:
+        input_references = [{"image_url": url} for url in reference_urls[:7]]
+    return prompt, input_references
+>>>>>>> upstream/main
 
 
 async def completions(
@@ -1474,7 +1584,13 @@ async def completions(
                     continue
                 if progress > last_progress:
                     last_progress = progress
+<<<<<<< HEAD
                     chunk = make_thinking_chunk(response_id, model, _progress_reason(progress))
+=======
+                    chunk = make_thinking_chunk(
+                        response_id, model, _progress_reason_delta(progress)
+                    )
+>>>>>>> upstream/main
                     yield f"data: {orjson.dumps(chunk).decode()}\n\n"
 
             content = await task
