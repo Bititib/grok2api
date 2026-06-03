@@ -75,8 +75,8 @@ def _statsig_id() -> str:
             msg = f"x1:TypeError: Cannot read properties of undefined (reading '{rand}')"
         return base64.b64encode(msg.encode()).decode()
     return (
-        "ZTpUeXBlRXJyb3I6IENhbm5vdCByZWFkIHByb3BlcnRpZXMgb2YgdW5kZWZpbmVkIChyZWFkaW5nICdjaGls"
-        "ZE5vZGVzJyk="
+        "eDE6VHlwZUVycm9yOiBDYW5ub3QgcmVhZCBwcm9wZXJ0aWVzIG9mIHVuZGVmaW5lZCAocmVhZGlu"
+        "ZyAnY2hpbGROb2Rlcycp"
     )
 
 
