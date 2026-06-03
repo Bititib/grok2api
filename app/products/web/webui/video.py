@@ -104,6 +104,9 @@ async def video_ws(websocket: WebSocket):
             _resolve_video_resolution_name,
             _resolve_video_preset,
             validate_video_length,
+            _download_video_bytes,
+            _save_video_bytes,
+            _local_video_url,
         )
 
         await _send({
@@ -143,9 +146,33 @@ async def video_ws(websocket: WebSocket):
                 progress_cb=_progress_cb,
             )
 
+            # 下载视频到本地缓存，返回本地 URL
+            video_url = artifact.video_url
+            try:
+                import hashlib
+                file_id = hashlib.sha1(video_url.encode("utf-8")).hexdigest()[:32]
+                # _download_video_bytes needs a token; get one from account directory
+                from app.dataplane.account import _directory as _acct_dir
+                if _acct_dir is not None:
+                    acct = await _acct_dir.reserve(
+                        pool_candidates=None,
+                        mode_id=0,
+                        now_s_override=None,
+                    )
+                    if acct:
+                        try:
+                            raw, _mime = await _download_video_bytes(acct.token, video_url)
+                            import asyncio as _aio
+                            await _aio.to_thread(_save_video_bytes, raw, file_id)
+                            video_url = _local_video_url(file_id)
+                        finally:
+                            await _acct_dir.release(acct)
+            except Exception as dl_exc:
+                logger.debug("webui video local cache failed, using upstream url: {}", dl_exc)
+
             await _send({
                 "type": "video",
-                "url": artifact.video_url,
+                "url": video_url,
                 "thumbnail_url": artifact.thumbnail_url or "",
                 "run_id": run_id,
             })
