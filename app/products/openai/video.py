@@ -52,7 +52,8 @@ from ._format import (
     make_stream_chunk,
     make_thinking_chunk,
 )
-from .chat import _fail_sync, _quota_sync, _feedback_kind
+from .chat import _fail_sync, _quota_sync, _feedback_kind, _configured_retry_codes, _should_retry_upstream
+from app.products._account_selection import reserve_account, selection_max_retries
 
 _IMAGE_MEDIA_TYPE = "MEDIA_POST_TYPE_IMAGE"
 _VIDEO_MEDIA_TYPE = "MEDIA_POST_TYPE_VIDEO"
@@ -124,6 +125,12 @@ class _VideoJob:
         }
         if self.completed_at is not None:
             payload["completed_at"] = self.completed_at
+        if self.status == "completed":
+            # Return local URL when video is cached locally, fallback to grok URL
+            if self.content_path:
+                payload["url"] = _local_video_url(self.id)
+            elif self.video_url:
+                payload["url"] = self.video_url
         if self.error is not None:
             payload["error"] = self.error
         if self.remixed_from_video_id:
@@ -336,6 +343,11 @@ async def _stream_video_request(
     )
     kwargs = build_session_kwargs(lease=lease)
 
+    logger.info(
+        "video upstream request: url={} token={}... payload_size={}",
+        CHAT, token[:8] if token else "none", len(orjson.dumps(payload)),
+    )
+
     async with ResettableSession(**kwargs) as session:
         response = await session.post(
             CHAT,
@@ -346,6 +358,12 @@ async def _stream_video_request(
         )
         if response.status_code != 200:
             body = response.content.decode("utf-8", "replace")[:300]
+            logger.error(
+                "video upstream error: status={} token={}... body={}",
+                response.status_code,
+                token[:8] if token else "none",
+                body[:200] if body else "(empty)",
+            )
             raise UpstreamError(
                 f"Video upstream returned {response.status_code}",
                 status=response.status_code,
@@ -748,6 +766,7 @@ async def _run_video_with_account(
     model: str,
     runner: Callable[[str, float], Awaitable[Any]],
 ) -> Any:
+    """Run a video generation with account-swap retry on configured status codes."""
     cfg = get_config()
     timeout_s = cfg.get_float("video.timeout", 180.0)
     spec = resolve_model(model)
@@ -759,38 +778,57 @@ async def _run_video_with_account(
     if _acct_dir is None:
         raise RateLimitError("Account directory not initialised")
 
-    acct = await _acct_dir.reserve(
-        pool_candidates=spec.pool_candidates(),
-        mode_id=int(spec.mode_id),
-        now_s_override=now_s(),
-    )
-    if acct is None:
-        raise RateLimitError("No available accounts for video generation")
+    max_retries = selection_max_retries()
+    retry_codes = _configured_retry_codes(cfg)
+    excluded: list[str] = []
 
-    token = acct.token
-    success = False
-    fail_exc: BaseException | None = None
-    try:
-        artifact = await runner(token, timeout_s)
-        success = True
-        return artifact
-    except BaseException as exc:
-        fail_exc = exc
-        raise
-    finally:
-        await _acct_dir.release(acct)
-        kind = (
-            FeedbackKind.SUCCESS
-            if success
-            else _feedback_kind(fail_exc)
-            if fail_exc
-            else FeedbackKind.SERVER_ERROR
+    for attempt in range(max_retries + 1):
+        acct, _selected_mode = await reserve_account(
+            _acct_dir,
+            spec,
+            now_s_override=now_s(),
+            exclude_tokens=excluded or None,
         )
-        await _acct_dir.feedback(token, kind, int(spec.mode_id))
-        if success:
-            asyncio.create_task(_quota_sync(token, int(spec.mode_id)))
-        else:
-            asyncio.create_task(_fail_sync(token, int(spec.mode_id), fail_exc))
+        if acct is None:
+            raise RateLimitError("No available accounts for video generation")
+
+        token = acct.token
+        success = False
+        fail_exc: BaseException | None = None
+        try:
+            artifact = await runner(token, timeout_s)
+            success = True
+            return artifact
+        except UpstreamError as exc:
+            fail_exc = exc
+            if _should_retry_upstream(exc, retry_codes) and attempt < max_retries:
+                logger.warning(
+                    "video retry scheduled: attempt={}/{} status={} token={}...",
+                    attempt + 1, max_retries, exc.status, token[:8],
+                )
+                excluded.append(token)
+                continue
+            raise
+        except BaseException as exc:
+            fail_exc = exc
+            raise
+        finally:
+            await _acct_dir.release(acct)
+            kind = (
+                FeedbackKind.SUCCESS
+                if success
+                else _feedback_kind(fail_exc)
+                if fail_exc
+                else FeedbackKind.SERVER_ERROR
+            )
+            await _acct_dir.feedback(token, kind, int(spec.mode_id))
+            if success:
+                asyncio.create_task(_quota_sync(token, int(spec.mode_id)))
+            else:
+                asyncio.create_task(_fail_sync(token, int(spec.mode_id), fail_exc))
+
+    # Should not be reached, but satisfy type checker.
+    raise RateLimitError("Video generation exhausted all retry attempts")
 
 
 async def _put_video_job(job: _VideoJob) -> None:
@@ -847,56 +885,89 @@ async def _run_video_job(
         if _acct_dir is None:
             raise RateLimitError("Account directory not initialised")
 
-        acct = await _acct_dir.reserve(
-            pool_candidates=spec.pool_candidates(),
-            mode_id=int(spec.mode_id),
-            now_s_override=now_s(),
-        )
-        if acct is None:
-            raise RateLimitError("No available accounts for video generation")
+        cfg = get_config()
+        timeout_s = cfg.get_float("video.timeout", 180.0)
+        max_retries = selection_max_retries()
+        retry_codes = _configured_retry_codes(cfg)
+        excluded: list[str] = []
 
-        token = acct.token
-        success = False
-        fail_exc: BaseException | None = None
-        try:
-            cfg = get_config()
-            timeout_s = cfg.get_float("video.timeout", 180.0)
+        async def _progress(progress: int) -> None:
+            await _set_job_status(
+                job, status="in_progress", progress=max(1, progress)
+            )
 
-            async def _progress(progress: int) -> None:
-                await _set_job_status(
-                    job, status="in_progress", progress=max(1, progress)
+        artifact = None
+        raw = b""
+        last_token = ""
+
+        for attempt in range(max_retries + 1):
+            acct, _selected_mode = await reserve_account(
+                _acct_dir,
+                spec,
+                now_s_override=now_s(),
+                exclude_tokens=excluded or None,
+            )
+            if acct is None:
+                raise RateLimitError("No available accounts for video generation")
+
+            token = acct.token
+            last_token = token
+            success = False
+            fail_exc: BaseException | None = None
+            should_retry = False
+            try:
+                artifact = await _generate_video_with_token(
+                    token=token,
+                    prompt=prompt,
+                    aspect_ratio=aspect_ratio,
+                    resolution_name=resolved_resolution_name,
+                    seconds=seconds,
+                    preset=resolved_preset,
+                    timeout_s=timeout_s,
+                    input_references=input_references,
+                    progress_cb=_progress,
                 )
+                raw, _mime = await _download_video_bytes(token, artifact.video_url)
+                success = True
+            except UpstreamError as exc:
+                fail_exc = exc
+                if _should_retry_upstream(exc, retry_codes) and attempt < max_retries:
+                    should_retry = True
+                    logger.warning(
+                        "video job retry scheduled: job_id={} attempt={}/{} status={} token={}...",
+                        job.id, attempt + 1, max_retries, exc.status, token[:8],
+                    )
+            except BaseException as exc:
+                fail_exc = exc
+            finally:
+                await _acct_dir.release(acct)
+                kind = (
+                    FeedbackKind.SUCCESS
+                    if success
+                    else _feedback_kind(fail_exc)
+                    if fail_exc
+                    else FeedbackKind.SERVER_ERROR
+                )
+                await _acct_dir.feedback(token, kind, int(spec.mode_id))
+                if success:
+                    asyncio.create_task(_quota_sync(token, int(spec.mode_id)))
+                else:
+                    asyncio.create_task(_fail_sync(token, int(spec.mode_id), fail_exc))
 
-            artifact = await _generate_video_with_token(
-                token=token,
-                prompt=prompt,
-                aspect_ratio=aspect_ratio,
-                resolution_name=resolved_resolution_name,
-                seconds=seconds,
-                preset=resolved_preset,
-                timeout_s=timeout_s,
-                input_references=input_references,
-                progress_cb=_progress,
-            )
-            raw, _mime = await _download_video_bytes(token, artifact.video_url)
-            success = True
-        except BaseException as exc:
-            fail_exc = exc
-            raise
-        finally:
-            await _acct_dir.release(acct)
-            kind = (
-                FeedbackKind.SUCCESS
-                if success
-                else _feedback_kind(fail_exc)
-                if fail_exc
-                else FeedbackKind.SERVER_ERROR
-            )
-            await _acct_dir.feedback(token, kind, int(spec.mode_id))
             if success:
-                asyncio.create_task(_quota_sync(token, int(spec.mode_id)))
-            else:
-                asyncio.create_task(_fail_sync(token, int(spec.mode_id), fail_exc))
+                break
+            if should_retry:
+                excluded.append(token)
+                # Reset progress for the retry attempt
+                await _set_job_status(job, status="in_progress", progress=1)
+                continue
+            # Non-retryable failure
+            if fail_exc is not None:
+                raise fail_exc
+            raise UpstreamError("Video generation failed with unknown error")
+
+        if artifact is None:
+            raise UpstreamError("Video generation exhausted all retry attempts")
 
         path = _save_video_bytes(raw, job.id)
         async with _VIDEO_JOBS_LOCK:

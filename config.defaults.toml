@@ -94,12 +94,12 @@ cf_cookies = ""
 user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 # curl_cffi 浏览器指纹
 browser = "chrome136"
-# FlareSolverr 服务地址
+# FlareSolverr 服务地址（mode=flaresolverr 时必填）
 flaresolverr_url = ""
 # 挑战等待超时（秒）
 timeout_sec = 60
-# Clearance 刷新间隔（秒）
-refresh_interval = 3600
+# Clearance 刷新间隔（秒），建议 ≤ 600
+refresh_interval = 600
 
 
 # ==================== 重试策略 ====================
@@ -107,9 +107,9 @@ refresh_interval = 3600
 # [Transport 层] 触发重建代理 Session 的 HTTP 状态码
 reset_session_status_codes = [403]
 # [App 层] 换账号重试最大次数（0 = 不重试）
-max_retries = 1
+max_retries = 2
 # [App 层] 触发换账号重试的 HTTP 状态码，英文逗号分隔
-on_codes = "429,401,503"
+on_codes = "429,401,403,503"
 
 
 [account.refresh]
