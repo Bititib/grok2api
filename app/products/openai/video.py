@@ -869,6 +869,7 @@ async def _run_video_job(
     seconds: int,
     preset: str | None,
     input_references: list[dict[str, Any]] | None = None,
+    billing_key: Any | None = None,
 ) -> None:
     try:
         await _set_job_status(job, status="in_progress", progress=1)
@@ -977,6 +978,29 @@ async def _run_video_job(
             job.video_url = artifact.video_url
             job.content_path = str(path)
             job.remixed_from_video_id = artifact.remixed_from_video_id
+
+        # ── Billing: charge only on successful completion ────────────
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+
+            svc = get_billing_service()
+            if svc is not None:
+                try:
+                    await svc.record_usage(
+                        billing_key,
+                        model=job.model,
+                        endpoint="video",
+                        video_seconds=seconds,
+                        video_resolution=resolution_name or "720p",
+                        request_id=job.id,
+                        status="success",
+                    )
+                except Exception as billing_exc:
+                    logger.warning(
+                        "billing record failed for video job {}: {}",
+                        job.id, billing_exc,
+                    )
+
     except Exception as exc:
         logger.exception("video job failed: job_id={} error={}", job.id, exc)
         async with _VIDEO_JOBS_LOCK:
@@ -993,6 +1017,7 @@ async def create_video(
     resolution_name: str | None = None,
     preset: str | None = None,
     input_references: list[dict[str, Any]] | None = None,
+    billing_key: Any | None = None,
 ) -> dict[str, Any]:
     spec = model_registry.get(model)
     if spec is None or not spec.enabled or not spec.is_video():
@@ -1028,6 +1053,7 @@ async def create_video(
             seconds=normalized_seconds,
             preset=preset,
             input_references=input_references,
+            billing_key=billing_key,
         )
     )
     asyncio.create_task(_expire_video_job(job.id))
