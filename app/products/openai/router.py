@@ -542,7 +542,23 @@ async def videos_create(
             for f in input_reference[:7]
         ]
 
-    # Billing is deferred to _run_video_job completion — only charged on success.
+    # ── Pre-hold: freeze estimated cost before submission ────────────
+    held_amount = 0.0
+    if billing_key is not None:
+        from app.control.billing.service import get_billing_service
+        from app.control.billing.pricing import video_cost
+
+        svc = get_billing_service()
+        if svc is not None:
+            held_amount = video_cost(seconds, resolution=resolution_name or "720p")
+            if held_amount > 0:
+                ok = await svc.hold_balance(billing_key.key, held_amount)
+                if not ok:
+                    return JSONResponse(
+                        {"error": {"message": "Insufficient balance", "type": "billing_error", "code": "insufficient_balance"}},
+                        status_code=402,
+                    )
+
     result = await create_video(
         model=model or "grok-video",
         prompt=prompt,
@@ -552,6 +568,7 @@ async def videos_create(
         preset=preset,
         input_references=references_payload,
         billing_key=billing_key,
+        held_amount=held_amount,
     )
 
     return JSONResponse(result)

@@ -870,6 +870,7 @@ async def _run_video_job(
     preset: str | None,
     input_references: list[dict[str, Any]] | None = None,
     billing_key: Any | None = None,
+    held_amount: float = 0.0,
 ) -> None:
     try:
         await _set_job_status(job, status="in_progress", progress=1)
@@ -979,7 +980,7 @@ async def _run_video_job(
             job.content_path = str(path)
             job.remixed_from_video_id = artifact.remixed_from_video_id
 
-        # ── Billing: charge only on successful completion ────────────
+        # ── Billing: settle hold on successful completion ────────────
         if billing_key is not None:
             from app.control.billing.service import get_billing_service
 
@@ -994,6 +995,7 @@ async def _run_video_job(
                         video_resolution=resolution_name or "720p",
                         request_id=job.id,
                         status="success",
+                        held_amount=held_amount,
                     )
                 except Exception as billing_exc:
                     logger.warning(
@@ -1007,6 +1009,24 @@ async def _run_video_job(
             job.status = "failed"
             job.error = _job_error_payload(_exception_message(exc))
 
+        # ── Billing: refund hold on failure ──────────────────────────
+        if billing_key is not None and held_amount > 0:
+            from app.control.billing.service import get_billing_service
+
+            svc = get_billing_service()
+            if svc is not None:
+                try:
+                    await svc.refund_hold(billing_key.key, held_amount)
+                    logger.info(
+                        "billing refunded hold for failed video job {}: ${}",
+                        job.id, held_amount,
+                    )
+                except Exception as refund_exc:
+                    logger.warning(
+                        "billing refund failed for video job {}: {}",
+                        job.id, refund_exc,
+                    )
+
 
 async def create_video(
     *,
@@ -1018,6 +1038,7 @@ async def create_video(
     preset: str | None = None,
     input_references: list[dict[str, Any]] | None = None,
     billing_key: Any | None = None,
+    held_amount: float = 0.0,
 ) -> dict[str, Any]:
     spec = model_registry.get(model)
     if spec is None or not spec.enabled or not spec.is_video():
@@ -1054,6 +1075,7 @@ async def create_video(
             preset=preset,
             input_references=input_references,
             billing_key=billing_key,
+            held_amount=held_amount,
         )
     )
     asyncio.create_task(_expire_video_job(job.id))
