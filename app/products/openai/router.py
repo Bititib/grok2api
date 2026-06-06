@@ -462,6 +462,7 @@ async def image_generations(req: ImageGenerationRequest):
 
 @router.post("/videos", tags=[_TAG_VIDEOS], dependencies=[Depends(verify_api_key)])
 async def videos_create(
+    request: Request,
     model: Annotated[str, Form(...)],
     prompt: Annotated[str, Form(...)],
     seconds: Annotated[int, Form()] = 6,
@@ -476,7 +477,12 @@ async def videos_create(
         list[UploadFile] | None, File(alias="input_reference[]")
     ] = None,
 ):
+    import asyncio, time as _time
+
     from .video import create_video
+
+    billing_key = getattr(request.state, "billing_key", None)
+    _start = _time.monotonic()
 
     references_payload = None
     if input_reference:
@@ -485,16 +491,44 @@ async def videos_create(
             for f in input_reference[:7]
         ]
 
-    result = await create_video(
-        model=model or "grok-video",
-        prompt=prompt,
-        seconds=seconds,
-        size=size or "720x1280",
-        resolution_name=resolution_name,
-        preset=preset,
-        input_references=references_payload,
-    )
+    error_msg = None
+    status = "success"
+    try:
+        result = await create_video(
+            model=model or "grok-video",
+            prompt=prompt,
+            seconds=seconds,
+            size=size or "720x1280",
+            resolution_name=resolution_name,
+            preset=preset,
+            input_references=references_payload,
+        )
+    except Exception as exc:
+        error_msg = str(exc)
+        status = "error"
+        raise
+    finally:
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+
+            svc = get_billing_service()
+            if svc is not None:
+                duration_ms = int((_time.monotonic() - _start) * 1000)
+                asyncio.create_task(
+                    svc.record_usage(
+                        billing_key,
+                        model=model or "grok-video",
+                        endpoint="video",
+                        video_seconds=seconds if status == "success" else 0,
+                        video_resolution=resolution_name or "720p",
+                        duration_ms=duration_ms,
+                        status=status,
+                        error_message=error_msg,
+                    )
+                )
+
     return JSONResponse(result)
+
 
 
 @router.get(
