@@ -213,9 +213,14 @@ async def _upload_to_data_uri(upload: UploadFile, *, param: str) -> str:
 @router.post(
     "/chat/completions", tags=[_TAG_CHAT], dependencies=[Depends(verify_api_key)]
 )
-async def chat_completions_endpoint(req: ChatCompletionRequest):
+async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest):
+    import asyncio, time as _time
+
     _validate_chat(req)
     from app.platform.config.snapshot import get_config
+
+    billing_key = getattr(request.state, "billing_key", None)
+    _start = _time.monotonic()
 
     cfg = get_config()
     is_stream = (
@@ -230,6 +235,16 @@ async def chat_completions_endpoint(req: ChatCompletionRequest):
             code="model_not_found",
         )
     messages = [m.model_dump(exclude_none=True) for m in req.messages]
+
+    # Determine endpoint type for billing
+    if spec.is_image_edit():
+        _billing_endpoint = "image_edit"
+    elif spec.is_image():
+        _billing_endpoint = "image"
+    elif spec.is_video():
+        _billing_endpoint = "video"
+    else:
+        _billing_endpoint = "chat"
 
     try:
         # Dispatch by model capability.
@@ -337,7 +352,25 @@ async def chat_completions_endpoint(req: ChatCompletionRequest):
             )
         raise
 
+    # Billing: record usage for non-streaming dict responses
     if isinstance(result, dict):
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            svc = get_billing_service()
+            if svc is not None:
+                usage = result.get("usage", {})
+                duration_ms = int((_time.monotonic() - _start) * 1000)
+                asyncio.create_task(
+                    svc.record_usage(
+                        billing_key,
+                        model=req.model,
+                        endpoint=_billing_endpoint,
+                        prompt_tokens=usage.get("prompt_tokens", 0),
+                        completion_tokens=usage.get("completion_tokens", 0),
+                        request_id=result.get("id", ""),
+                        duration_ms=duration_ms,
+                    )
+                )
         return JSONResponse(result)
     return StreamingResponse(
         _safe_sse(result), media_type="text/event-stream", headers=_SSE_HEADERS
@@ -433,13 +466,18 @@ async def responses_endpoint(req: ResponsesCreateRequest):
 @router.post(
     "/images/generations", tags=[_TAG_IMAGES], dependencies=[Depends(verify_api_key)]
 )
-async def image_generations(req: ImageGenerationRequest):
+async def image_generations(request: Request, req: ImageGenerationRequest):
+    import asyncio, time as _time
+
     spec = model_registry.get(req.model)
     if spec is None or not spec.enabled or not spec.is_image():
         raise ValidationError(
             f"Model {req.model!r} is not an image model", param="model"
         )
     _validate_image_n(req.model, req.n or 1, param="n")
+
+    billing_key = getattr(request.state, "billing_key", None)
+    _start = _time.monotonic()
 
     from .images import generate as img_gen
 
@@ -452,6 +490,22 @@ async def image_generations(req: ImageGenerationRequest):
         stream=False,
         chat_format=False,
     )
+
+    if billing_key is not None:
+        from app.control.billing.service import get_billing_service
+        svc = get_billing_service()
+        if svc is not None:
+            duration_ms = int((_time.monotonic() - _start) * 1000)
+            asyncio.create_task(
+                svc.record_usage(
+                    billing_key,
+                    model=req.model,
+                    endpoint="image",
+                    request_id=result.get("created", ""),
+                    duration_ms=duration_ms,
+                )
+            )
+
     return JSONResponse(result)
 
 
@@ -561,6 +615,7 @@ async def videos_content(video_id: str):
     "/images/edits", tags=[_TAG_IMAGES], dependencies=[Depends(verify_api_key)]
 )
 async def image_edits(
+    request: Request,
     model: Annotated[str, Form(...)],
     prompt: Annotated[str, Form(...)],
     image: Annotated[list[UploadFile], File(..., alias="image[]")],
@@ -569,6 +624,8 @@ async def image_edits(
     size: Annotated[str, Form()] = "1024x1024",
     response_format: Annotated[str, Form()] = "url",
 ):
+    import asyncio, time as _time
+
     spec = model_registry.get(model)
     if spec is None or not spec.enabled or not spec.is_image_edit():
         raise ValidationError(
@@ -577,6 +634,9 @@ async def image_edits(
     if mask is not None:
         raise ValidationError("mask is not supported yet", param="mask")
     _validate_image_edit_n(n, param="n")
+
+    billing_key = getattr(request.state, "billing_key", None)
+    _start = _time.monotonic()
 
     from .images import edit as img_edit
 
@@ -600,6 +660,21 @@ async def image_edits(
         stream=False,
         chat_format=False,
     )
+
+    if billing_key is not None:
+        from app.control.billing.service import get_billing_service
+        svc = get_billing_service()
+        if svc is not None:
+            duration_ms = int((_time.monotonic() - _start) * 1000)
+            asyncio.create_task(
+                svc.record_usage(
+                    billing_key,
+                    model=model,
+                    endpoint="image_edit",
+                    duration_ms=duration_ms,
+                )
+            )
+
     return JSONResponse(result)
 
 
