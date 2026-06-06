@@ -44,7 +44,6 @@ Authorization: Bearer <API_KEY>
 |--------|------|------|
 | `grok-imagine-video` | 标准视频生成 | ⭐ 推荐 |
 | `grok-4.3-video` | Grok 4.3 视频 | |
-| `grok-4.3-video-heavy` | Grok 4.3 视频（Heavy 级）(不可用) | |
 
 ### 画幅尺寸
 

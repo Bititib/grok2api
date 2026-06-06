@@ -607,4 +607,61 @@ async def serve_image(id: str = Query(..., description="Image file ID")):
     raise ValidationError(f"Image {id!r} not found", param="id")
 
 
+# ---------------------------------------------------------------------------
+# /v1/billing — user-facing billing endpoints (for dashboard.html)
+# ---------------------------------------------------------------------------
+
+_TAG_BILLING = "Billing"
+
+
+@router.get("/billing/balance", tags=[_TAG_BILLING], dependencies=[Depends(verify_api_key)])
+async def billing_balance(request: Request):
+    """Return balance info for the authenticated billing key."""
+    from app.control.billing.service import is_billing_enabled, get_billing_service
+
+    billing_key = getattr(request.state, "billing_key", None)
+    if not is_billing_enabled() or billing_key is None:
+        return JSONResponse({"billing": False, "message": "Billing is not enabled or key is not a billing key."})
+
+    return JSONResponse({
+        "billing": True,
+        "key_name": billing_key.name or "Anonymous",
+        "group": billing_key.group or "default",
+        "balance": billing_key.balance,
+        "total_charged": billing_key.total_charged,
+        "status": billing_key.status,
+    })
+
+
+@router.get("/billing/usage", tags=[_TAG_BILLING], dependencies=[Depends(verify_api_key)])
+async def billing_usage(
+    request: Request,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=100),
+):
+    """Return usage logs for the authenticated billing key."""
+    from app.control.billing.service import is_billing_enabled, get_billing_service
+
+    billing_key = getattr(request.state, "billing_key", None)
+    if not is_billing_enabled() or billing_key is None:
+        return JSONResponse({"items": [], "total": 0, "summary": {}})
+
+    svc = get_billing_service()
+    if svc is None:
+        return JSONResponse({"items": [], "total": 0, "summary": {}})
+
+    items, total = await svc.get_usage(
+        api_key=billing_key.key,
+        page=page,
+        page_size=page_size,
+    )
+    summary = await svc.get_usage_summary(api_key=billing_key.key)
+
+    return JSONResponse({
+        "items": [item.model_dump() for item in items],
+        "total": total,
+        "summary": summary,
+    })
+
+
 __all__ = ["router"]
