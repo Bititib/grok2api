@@ -732,11 +732,17 @@ async def videos_create(
             if svc is not None:
                 duration_ms = int((_time.monotonic() - _start) * 1000)
                 task_id = result.get("id") or result.get("task_id") or ""
+                try:
+                    video_sec = int(seconds)
+                except (ValueError, TypeError):
+                    video_sec = 6
                 asyncio.create_task(
                     svc.record_usage(
                         billing_key,
                         model=model,
                         endpoint="video",
+                        video_seconds=video_sec,
+                        video_resolution=resolution_name or resolution or "720p",
                         request_id=str(task_id),
                         duration_ms=duration_ms,
                     )
