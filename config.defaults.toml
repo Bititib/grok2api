@@ -194,3 +194,23 @@ default_input_price = 1.0
 default_output_price = 3.0
 # 图片模型按次计价
 default_image_price = 0.04
+
+
+# ==================== 计费配置 ====================
+[billing]
+# 默认全局视频计费 (美元/秒)
+video_cost_per_second_480p = 0.02
+video_cost_per_second_720p = 0.03
+
+# 模型特定计费配置
+[billing.pricing.grok-imagine-video-1.5-preview]
+video_cost_per_second_480p = 0.04
+video_cost_per_second_720p = 0.05
+
+[billing.pricing.grok-imagine-video-1.5-fast]
+video_cost_per_second_480p = 0.04
+video_cost_per_second_720p = 0.05
+
+[billing.pricing.grok-imagine-1.0-video]
+video_cost_per_second_480p = 0.02
+video_cost_per_second_720p = 0.03

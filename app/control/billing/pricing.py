@@ -46,6 +46,9 @@ _DEFAULT_PRICING: dict[str, ModelPricing] = {
     "grok-video":              ModelPricing(is_video=True),
     "grok-4.3-video":          ModelPricing(is_video=True),
     "grok-4.3-video-heavy":    ModelPricing(is_video=True),
+    "grok-imagine-video-1.5-preview": ModelPricing(is_video=True),
+    "grok-imagine-video-1.5-fast": ModelPricing(is_video=True),
+    "grok-imagine-1.0-video":  ModelPricing(is_video=True),
 }
 
 
@@ -53,12 +56,13 @@ def video_cost(seconds: int, resolution: str = "720p", model: str | None = None)
     """Calculate video cost based on duration and resolution.
 
     Per-second pricing by resolution:
-    - 480p → $0.02 / second
-    - 720p → $0.03 / second
+    - 480p → $0.02 / second (1.5 models: $0.04 / second)
+    - 720p → $0.03 / second (1.5 models: $0.05 / second)
 
     Rates are overridable via config:
     - billing.video_cost_per_second_480p
     - billing.video_cost_per_second_720p
+    - billing.pricing.{model}.video_cost_per_second_...
     """
     cfg = get_config()
 
@@ -67,6 +71,13 @@ def video_cost(seconds: int, resolution: str = "720p", model: str | None = None)
         rate = cfg.get_float(f"billing.pricing.{model}.video_cost_per_second_{resolution}", -1.0)
         if rate >= 0:
             return round(seconds * rate, 4)
+
+        # Default fallback values for 1.5 video models (0.02 default + 0.02 extra)
+        if "1.5" in model:
+            if resolution == "480p":
+                return round(seconds * 0.04, 4)
+            else:
+                return round(seconds * 0.05, 4)
 
     if resolution == "480p":
         rate = cfg.get_float("billing.video_cost_per_second_480p", 0.02)
