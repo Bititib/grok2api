@@ -49,7 +49,7 @@ _DEFAULT_PRICING: dict[str, ModelPricing] = {
 }
 
 
-def video_cost(seconds: int, resolution: str = "720p") -> float:
+def video_cost(seconds: int, resolution: str = "720p", model: str | None = None) -> float:
     """Calculate video cost based on duration and resolution.
 
     Per-second pricing by resolution:
@@ -61,6 +61,12 @@ def video_cost(seconds: int, resolution: str = "720p") -> float:
     - billing.video_cost_per_second_720p
     """
     cfg = get_config()
+
+    if model:
+        # Try model specific pricing first
+        rate = cfg.get_float(f"billing.pricing.{model}.video_cost_per_second_{resolution}", -1.0)
+        if rate >= 0:
+            return round(seconds * rate, 4)
 
     if resolution == "480p":
         rate = cfg.get_float("billing.video_cost_per_second_480p", 0.02)
@@ -118,7 +124,7 @@ def calculate_cost(
 
     # Video models
     if pricing.is_video or endpoint == "video":
-        return video_cost(video_seconds, resolution=video_resolution)
+        return video_cost(video_seconds, resolution=video_resolution, model=model)
 
     # Per-request models (images)
     if pricing.per_request > 0:

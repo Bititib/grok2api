@@ -730,6 +730,31 @@ const SCHEMA_DEF = [
       },
     ]
   },
+  {
+    id: 'billing', label: '计费设置', labelKey: 'config.schema.tabs.billing',
+    groups: [
+      {
+        title: '全局视频计费单价', titleKey: 'config.schema.groups.billingGlobalVideo',
+        section: 'billing',
+        fields: [
+          { key: 'video_cost_per_second_480p', label: '全局 480p 每秒单价', type: 'number', desc: '全局默认的 480p 视频每秒生成费用（美元），当模型未进行独立定价时使用。默认 0.02' },
+          { key: 'video_cost_per_second_720p', label: '全局 720p 每秒单价', type: 'number', desc: '全局默认的 720p 及以上视频每秒生成费用（美元），当模型未进行独立定价时使用。默认 0.03' },
+        ]
+      },
+      {
+        title: 'Grok 1.5 视频单独计费 (美元/秒)', titleKey: 'config.schema.groups.billingGrok15',
+        section: 'billing.pricing',
+        fields: [
+          { key: 'grok-imagine-video-1.5-preview.video_cost_per_second_480p', label: '1.5-preview 480p 单价', type: 'number', desc: 'grok-imagine-video-1.5-preview 的 480p 每秒价格。' },
+          { key: 'grok-imagine-video-1.5-preview.video_cost_per_second_720p', label: '1.5-preview 720p 单价', type: 'number', desc: 'grok-imagine-video-1.5-preview 的 720p 每秒价格。' },
+          { key: 'grok-imagine-video-1.5-fast.video_cost_per_second_480p', label: '1.5-fast 480p 单价', type: 'number', desc: 'grok-imagine-video-1.5-fast 的 480p 每秒价格。' },
+          { key: 'grok-imagine-video-1.5-fast.video_cost_per_second_720p', label: '1.5-fast 720p 单价', type: 'number', desc: 'grok-imagine-video-1.5-fast 的 720p 每秒价格。' },
+          { key: 'grok-imagine-1.0-video.video_cost_per_second_480p', label: '1.0-video 480p 单价', type: 'number', desc: 'grok-imagine-1.0-video 的 480p 每秒价格。' },
+          { key: 'grok-imagine-1.0-video.video_cost_per_second_720p', label: '1.0-video 720p 单价', type: 'number', desc: 'grok-imagine-1.0-video 的 720p 每秒价格。' },
+        ]
+      }
+    ]
+  },
 ];
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -866,14 +891,29 @@ async function _api(method, path, body) {
 // ── Schema helpers ─────────────────────────────────────────────────────────
 
 // Navigate a nested object by dotted path. Returns undefined if any segment is missing.
+function _splitPath(dottedPath) {
+  if (dottedPath.startsWith('billing.pricing.')) {
+    const prefix = 'billing.pricing.';
+    const sub = dottedPath.slice(prefix.length);
+    const lastDotIndex = sub.lastIndexOf('.');
+    if (lastDotIndex !== -1) {
+      const model = sub.slice(0, lastDotIndex);
+      const key = sub.slice(lastDotIndex + 1);
+      return ['billing', 'pricing', model, key];
+    }
+  }
+  return dottedPath.split('.');
+}
+
 function _getByPath(obj, dottedPath) {
-  return dottedPath.split('.').reduce((node, k) =>
+  const keys = _splitPath(dottedPath);
+  return keys.reduce((node, k) =>
     (node != null && typeof node === 'object') ? node[k] : undefined, obj);
 }
 
 // Set a value at a dotted path, creating intermediate objects as needed.
 function _setByPath(obj, dottedPath, value) {
-  const keys = dottedPath.split('.');
+  const keys = _splitPath(dottedPath);
   let cur = obj;
   for (let i = 0; i < keys.length - 1; i++) {
     if (cur[keys[i]] == null || typeof cur[keys[i]] !== 'object') cur[keys[i]] = {};

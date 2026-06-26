@@ -368,6 +368,7 @@
         "schedule": "Scheduling",
         "proxy": "Networking",
         "cache": "Cache Storage",
+        "billing": "Billing",
         "image": "Image Pipeline"
       },
       "groups": {
@@ -383,7 +384,9 @@
         "timeouts": "Request Timeouts",
         "imageProtocol": "NSFW and Image Streaming",
         "logging": "Logging",
-        "localMediaCache": "Local Media Cache"
+        "localMediaCache": "Local Media Cache",
+        "billingGlobalVideo": "Global Video Pricing",
+        "billingGrok15": "Grok Video Custom Pricing (USD/s)"
       },
       "options": {
         "imageFormat": {
