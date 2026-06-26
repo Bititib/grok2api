@@ -1164,11 +1164,24 @@ async def video_create_endpoint(request: Request):
         if svc is not None:
             duration_ms = int((_time.monotonic() - _start) * 1000)
             task_id = result.get("id") or result.get("task_id") or ""
+            # Extract seconds and resolution from the request body
+            try:
+                video_sec = int(body.get("seconds", 6))
+            except (ValueError, TypeError):
+                video_sec = 6
+            # Resolution: check size (e.g. "720P"), then fall back to "720p"
+            raw_size = str(body.get("size", "")).strip().lower()
+            if raw_size in ("480p", "sd"):
+                video_res = "480p"
+            else:
+                video_res = "720p"
             asyncio.create_task(
                 svc.record_usage(
                     billing_key,
                     model=model,
                     endpoint="video",
+                    video_seconds=video_sec,
+                    video_resolution=video_res,
                     request_id=str(task_id),
                     duration_ms=duration_ms,
                 )
