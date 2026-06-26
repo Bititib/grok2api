@@ -47,6 +47,15 @@ class ImageGenerationRequest(BaseModel):
     n:               int | None = Field(1, ge=1, le=10)
     size:            str | None = "1024x1024"
     response_format: str | None = "url"
+    # GPT Image 2 extended fields
+    quality:            str | None = None   # low, medium, high, auto
+    output_format:      str | None = None   # png, jpeg, webp
+    background:         str | None = None   # transparent, opaque, auto
+    output_compression: int | None = None   # 0-100 (jpeg/webp only)
+    stream:             bool | None = None  # SSE streaming
+
+    class Config:
+        extra = "allow"  # forward any unknown fields to NewAPI
 
 
 class ImageEditRequest(BaseModel):

@@ -97,8 +97,11 @@ def get_pricing(model: str) -> ModelPricing:
         if model.startswith(prefix):
             return pricing
 
-    # Truly unknown — use a conservative default
-    return ModelPricing(input=1.0, output=3.0)
+    # Truly unknown — use NewAPI default pricing from config, or conservative default
+    return ModelPricing(
+        input=cfg.get_float("providers.newapi.default_input_price", 1.0),
+        output=cfg.get_float("providers.newapi.default_output_price", 3.0),
+    )
 
 
 def calculate_cost(

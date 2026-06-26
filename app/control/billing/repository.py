@@ -324,6 +324,8 @@ class BillingRepository:
         self,
         *,
         api_key: str | None = None,
+        model: str | None = None,
+        endpoint: str | None = None,
         start_time: int | None = None,
         end_time: int | None = None,
     ) -> dict[str, Any]:
@@ -333,6 +335,12 @@ class BillingRepository:
         if api_key:
             conditions.append("api_key = ?")
             params.append(api_key)
+        if model:
+            conditions.append("model = ?")
+            params.append(model)
+        if endpoint:
+            conditions.append("endpoint = ?")
+            params.append(endpoint)
         if start_time:
             conditions.append("created_at >= ?")
             params.append(start_time)

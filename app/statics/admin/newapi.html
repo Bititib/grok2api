@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grok2API - 第三方 API 管理</title>
+  <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
+  <style>
+    body { background:#FAF9F5 }
+    .page-hd { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px }
+    .page-title { font-size:22px; font-weight:700; line-height:1.2 }
+    .page-sub { font-size:13px; color:var(--fg-muted); margin-top:5px }
+
+    /* Status cards */
+    .status-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px }
+    .status-cell { min-height:88px; padding:14px 16px; border-radius:12px; background:#fff; display:flex; flex-direction:column; gap:10px }
+    .status-top { display:flex; align-items:center; justify-content:space-between }
+    .status-label { font-size:11px; color:#8a8a8a; text-transform:uppercase; letter-spacing:.5px }
+    .status-icon { width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center }
+    .status-icon svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8 }
+    .status-num { font-size:22px; font-weight:600; line-height:1; margin-top:auto }
+    .status-sub { font-size:11px; color:#8a8a8a; margin-top:2px }
+
+    /* Connection indicator */
+    .conn-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px }
+    .conn-dot.online { background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,.4) }
+    .conn-dot.offline { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.3) }
+
+    /* Section */
+    .section { margin-bottom:24px }
+    .section-hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px }
+    .section-title { font-size:15px; font-weight:600 }
+    .section-action { font-size:12px; color:#8a8a8a; cursor:pointer }
+    .section-action:hover { color:#555 }
+
+    /* Config card */
+    .config-card { background:#fff; border-radius:14px; padding:20px }
+    .config-row { display:flex; align-items:center; padding:10px 0; border-bottom:1px solid #f5f3ee }
+    .config-row:last-child { border-bottom:none }
+    .config-key { width:160px; font-size:12px; color:#8a8a8a; flex-shrink:0 }
+    .config-val { font-size:13px; color:#333; font-family:ui-monospace,monospace; word-break:break-all }
+
+    /* Model table */
+    .table-card { background:#fff; border-radius:14px; overflow-x:auto }
+    table { width:100%; border-collapse:collapse }
+    th { background:#fff; font-size:11px; font-weight:500; color:#9b9b9b; padding:11px 16px; text-align:left }
+    td { font-size:13px; padding:12px 16px; border-bottom:none; color:#3f3f3f; vertical-align:middle }
+    tr:hover td { background:#fdfdfd }
+    .badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:500 }
+    .badge-owner { color:#2563eb; background:#eef6ff }
+    .empty-state { padding:48px 16px; color:#8a8a8a; font-size:13px; text-align:center }
+
+    /* Filter */
+    .filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:12px }
+    .filter-bar input { height:32px; padding:0 10px; border-radius:8px; border:1px solid #e0dcd4; background:#fff; font-size:12px; color:#333; outline:none; width:240px }
+    .filter-bar input:focus { border-color:#111 }
+    .model-count { font-size:12px; color:#8a8a8a }
+
+    /* Responsive */
+    @media(max-width:768px){
+      .status-grid{grid-template-columns:repeat(2,1fr)}
+    }
+  </style>
+</head>
+<body>
+
+<div id="admin-header" data-active="/admin/newapi"></div>
+
+<main class="admin-main">
+  <div class="page-hd">
+    <div>
+      <div class="page-title">第三方 API 管理</div>
+      <div class="page-sub">管理 NewAPI 中转站连接、查看上游余额和可用模型</div>
+    </div>
+  </div>
+
+  <!-- Status Cards -->
+  <div class="status-grid" id="status-grid">
+    <div class="status-cell">
+      <div class="status-top">
+        <div class="status-label">连接状态</div>
+        <span class="status-icon" style="color:#8a8a8a"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+      </div>
+      <div class="status-num" id="s-conn"><span class="conn-dot offline"></span>检测中...</div>
+    </div>
+    <div class="status-cell">
+      <div class="status-top">
+        <div class="status-label">上游余额</div>
+        <span class="status-icon" style="color:#16a34a"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+      </div>
+      <div class="status-num" id="s-balance" style="color:#16a34a">—</div>
+      <div class="status-sub" id="s-username"></div>
+    </div>
+    <div class="status-cell">
+      <div class="status-top">
+        <div class="status-label">可用模型</div>
+        <span class="status-icon" style="color:#7c3aed"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></span>
+      </div>
+      <div class="status-num" id="s-models" style="color:#7c3aed">—</div>
+    </div>
+    <div class="status-cell">
+      <div class="status-top">
+        <div class="status-label">超时设置</div>
+        <span class="status-icon" style="color:#ea580c"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>
+      </div>
+      <div class="status-num" id="s-timeout" style="color:#ea580c">—</div>
+    </div>
+  </div>
+
+  <!-- Config Section -->
+  <div class="section">
+    <div class="section-hd">
+      <div class="section-title">连接配置</div>
+      <div style="display:flex;gap:8px">
+        <span class="section-action" onclick="loadStatus();loadConfig()">🔄 刷新</span>
+      </div>
+    </div>
+    <div class="config-card" id="config-card">
+      <div class="config-row">
+        <span class="config-key">启用状态</span>
+        <span class="config-val"><label style="cursor:pointer"><input type="checkbox" id="f-enabled"> 启用第三方 API 转发</label></span>
+      </div>
+      <div class="config-row">
+        <span class="config-key">中转站地址</span>
+        <span class="config-val" style="flex:1"><input id="f-url" placeholder="https://new.dszyym.com" style="width:100%;height:30px;padding:0 8px;border-radius:6px;border:1px solid #e0dcd4;font-size:13px;font-family:ui-monospace,monospace;outline:none"></span>
+      </div>
+      <div class="config-row">
+        <span class="config-key">API Key</span>
+        <span class="config-val" style="flex:1;display:flex;gap:6px;align-items:center">
+          <input id="f-key" type="password" placeholder="sk-..." style="flex:1;height:30px;padding:0 8px;border-radius:6px;border:1px solid #e0dcd4;font-size:13px;font-family:ui-monospace,monospace;outline:none">
+          <span style="cursor:pointer;font-size:12px;color:#8a8a8a;white-space:nowrap" onclick="toggleKeyVis()">👁 显示</span>
+        </span>
+      </div>
+      <div class="config-row">
+        <span class="config-key">请求超时</span>
+        <span class="config-val"><input id="f-timeout" type="number" value="300" style="width:80px;height:30px;padding:0 8px;border-radius:6px;border:1px solid #e0dcd4;font-size:13px;outline:none"> 秒</span>
+      </div>
+      <div class="config-row">
+        <span class="config-key">模型列表合并</span>
+        <span class="config-val"><label style="cursor:pointer"><input type="checkbox" id="f-merge" checked> 在 /v1/models 中展示第三方模型</label></span>
+      </div>
+      <div class="config-row" style="border-bottom:none;justify-content:flex-end;padding-top:14px">
+        <button id="btn-save" onclick="saveConfig()" style="height:34px;padding:0 20px;border-radius:8px;border:none;background:#111;color:#fff;font-size:13px;font-weight:500;cursor:pointer">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Models Section -->
+  <div class="section">
+    <div class="section-hd">
+      <div class="section-title">上游模型列表</div>
+      <span class="model-count" id="model-count"></span>
+    </div>
+    <div class="filter-bar">
+      <input id="f-model-search" placeholder="搜索模型名..." oninput="filterModels()">
+    </div>
+    <div class="table-card">
+      <table><thead><tr>
+        <th>模型名称</th><th>提供者</th><th>创建时间</th>
+      </tr></thead><tbody id="models-tbody"><tr><td colspan="3" class="empty-state">加载中...</td></tr></tbody></table>
+    </div>
+  </div>
+</main>
+
+<script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
+<script>
+let _adminToken = '';
+let _allModels = [];
+
+(async () => {
+  _adminToken = await adminKey.get();
+  if (!_adminToken) { location.href = '/admin/login'; return; }
+  try { if (!(await verifyKey(ADMIN_API+'/verify', _adminToken))) { location.href='/admin/login'; return; } } catch { location.href='/admin/login'; return; }
+  loadStatus();
+  loadConfig();
+  loadModels();
+  await renderSiteFooter?.();
+})();
+
+async function api(path) {
+  const r = await fetch(ADMIN_API + '/newapi' + path, {
+    headers: { 'Authorization': `Bearer ${_adminToken}` },
+  });
+  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail?.message || r.statusText); }
+  return r.json();
+}
+
+/* ─── Toggle Key Visibility ──────────────────────── */
+function toggleKeyVis() {
+  const el = document.getElementById('f-key');
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+/* ─── Status ─────────────────────────────────────── */
+async function loadStatus() {
+  try {
+    const d = await api('/status');
+    const connEl = document.getElementById('s-conn');
+    if (d.connected) {
+      connEl.innerHTML = '<span class="conn-dot online"></span>已连接';
+    } else {
+      connEl.innerHTML = `<span class="conn-dot offline"></span>未连接`;
+    }
+    if (!d.enabled) {
+      connEl.innerHTML = '<span class="conn-dot offline"></span>未启用';
+    }
+
+    const balEl = document.getElementById('s-balance');
+    if (d.balance !== null && d.balance !== undefined) {
+      balEl.textContent = '$' + d.balance.toFixed(4);
+    } else {
+      balEl.textContent = d.connected ? '无法获取' : '—';
+    }
+
+    const userEl = document.getElementById('s-username');
+    if (d.username) userEl.textContent = d.username;
+
+    document.getElementById('s-models').textContent = d.models_count || '—';
+
+    if (d.error && !d.connected) {
+      showToast(d.error, 'error');
+    }
+  } catch (e) {
+    document.getElementById('s-conn').innerHTML = '<span class="conn-dot offline"></span>请求失败';
+    showToast('状态查询失败: ' + e.message, 'error');
+  }
+}
+
+/* ─── Config (load into form) ────────────────────── */
+async function loadConfig() {
+  try {
+    // Load raw config to get actual values (including full api_key for editing)
+    const r = await fetch(ADMIN_API + '/config', {
+      headers: { 'Authorization': `Bearer ${_adminToken}` },
+    });
+    const raw = await r.json();
+    const na = raw?.providers?.newapi || {};
+
+    document.getElementById('f-enabled').checked = !!na.enabled;
+    document.getElementById('f-url').value = na.base_url || '';
+    document.getElementById('f-key').value = na.api_key || '';
+    document.getElementById('f-timeout').value = na.timeout || 120;
+    document.getElementById('f-merge').checked = na.merge_models !== false;
+
+    document.getElementById('s-timeout').textContent = (na.timeout || 120) + 's';
+  } catch (e) {
+    showToast('配置加载失败: ' + e.message, 'error');
+  }
+}
+
+/* ─── Config (save from form) ────────────────────── */
+async function saveConfig() {
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  const payload = {
+    providers: {
+      newapi: {
+        enabled: document.getElementById('f-enabled').checked,
+        base_url: document.getElementById('f-url').value.trim(),
+        api_key: document.getElementById('f-key').value.trim(),
+        timeout: parseInt(document.getElementById('f-timeout').value) || 120,
+        merge_models: document.getElementById('f-merge').checked,
+      }
+    }
+  };
+
+  try {
+    const r = await fetch(ADMIN_API + '/config', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${_adminToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail?.message || r.statusText);
+    showToast('配置已保存，即时生效', 'success');
+    // Reload status and models
+    setTimeout(() => { loadStatus(); loadModels(); }, 500);
+  } catch (e) {
+    showToast('保存失败: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '保存配置';
+  }
+}
+
+/* ─── Models ─────────────────────────────────────── */
+async function loadModels() {
+  try {
+    const d = await api('/models');
+    _allModels = d.items || [];
+    document.getElementById('model-count').textContent = `共 ${_allModels.length} 个模型`;
+    renderModels(_allModels);
+  } catch (e) {
+    document.getElementById('models-tbody').innerHTML = `<tr><td colspan="3" class="empty-state">加载失败: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function filterModels() {
+  const q = (document.getElementById('f-model-search')?.value || '').trim().toLowerCase();
+  const filtered = q ? _allModels.filter(m => m.id.toLowerCase().includes(q)) : _allModels;
+  renderModels(filtered);
+}
+
+function renderModels(items) {
+  const tb = document.getElementById('models-tbody');
+  if (!items.length) {
+    tb.innerHTML = '<tr><td colspan="3" class="empty-state">暂无模型数据</td></tr>';
+    return;
+  }
+  tb.innerHTML = items.map(m => {
+    const time = m.created ? new Date(m.created * 1000).toLocaleDateString('zh-CN') : '—';
+    const owner = m.owned_by || 'unknown';
+    return `<tr>
+      <td style="font-weight:500">${esc(m.id)}</td>
+      <td><span class="badge badge-owner">${esc(owner)}</span></td>
+      <td style="font-size:12px;color:#8a8a8a">${time}</td>
+    </tr>`;
+  }).join('');
+}
+
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+</script>
+</body>
+</html>

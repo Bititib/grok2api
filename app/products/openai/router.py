@@ -64,6 +64,7 @@ def _model_available_for_pools(spec: ModelSpec, pools: frozenset[str]) -> bool:
 @router.get("/models", tags=[_TAG_MODELS], dependencies=[Depends(verify_api_key)])
 async def list_models(request: Request):
     import time
+    from app.platform.config.snapshot import get_config as _cfg
 
     pools = await _available_pools(request)
     models = [
@@ -77,6 +78,20 @@ async def list_models(request: Request):
         for m in model_registry.list_enabled()
         if _model_available_for_pools(m, pools)
     ]
+
+    # Merge NewAPI upstream models if enabled
+    from app.control.provider.newapi import is_newapi_enabled, list_models as newapi_list
+
+    if is_newapi_enabled() and _cfg().get_bool("providers.newapi.merge_models", True):
+        local_ids = {m["id"] for m in models}
+        try:
+            upstream = await newapi_list()
+            for um in upstream:
+                if um.get("id") not in local_ids:
+                    models.append(um)
+        except Exception as exc:
+            logger.debug("newapi model merge skipped: error={}", exc)
+
     return JSONResponse({"object": "list", "data": models})
 
 
@@ -216,7 +231,6 @@ async def _upload_to_data_uri(upload: UploadFile, *, param: str) -> str:
 async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest):
     import asyncio, time as _time
 
-    _validate_chat(req)
     from app.platform.config.snapshot import get_config
 
     billing_key = getattr(request.state, "billing_key", None)
@@ -228,12 +242,103 @@ async def chat_completions_endpoint(request: Request, req: ChatCompletionRequest
     )
 
     spec = model_registry.get(req.model)
+
+    # ── NewAPI Fallback: model not in Grok registry ──────────────────
     if spec is None:
-        raise ValidationError(
-            f"Model {req.model!r} does not exist or you do not have access to it.",
-            param="model",
-            code="model_not_found",
+        from app.control.provider.newapi import is_newapi_enabled, chat_completions as newapi_chat
+
+        if not is_newapi_enabled():
+            raise ValidationError(
+                f"Model {req.model!r} does not exist or you do not have access to it.",
+                param="model",
+                code="model_not_found",
+            )
+
+        messages = [m.model_dump(exclude_none=True) for m in req.messages]
+        try:
+            result = await newapi_chat(
+                model=req.model,
+                messages=messages,
+                stream=is_stream,
+                temperature=req.temperature or 0.8,
+                top_p=req.top_p or 0.95,
+                tools=req.tools,
+                tool_choice=req.tool_choice,
+            )
+        except Exception as exc:
+            logger.exception(
+                "newapi chat proxy failed: model={} error={}", req.model, exc,
+            )
+            if is_stream:
+                _err_msg = str(exc)
+
+                async def _err_stream():
+                    payload = orjson.dumps(
+                        {"error": {"message": _err_msg, "type": "server_error"}}
+                    ).decode()
+                    yield f"event: error\ndata: {payload}\n\n"
+                    yield "data: [DONE]\n\n"
+
+                return StreamingResponse(
+                    _err_stream(), media_type="text/event-stream", headers=_SSE_HEADERS
+                )
+            raise
+
+        # Billing for NewAPI non-streaming
+        if isinstance(result, dict):
+            if billing_key is not None:
+                from app.control.billing.service import get_billing_service
+                svc = get_billing_service()
+                if svc is not None:
+                    usage = result.get("usage", {})
+                    duration_ms = int((_time.monotonic() - _start) * 1000)
+                    asyncio.create_task(
+                        svc.record_usage(
+                            billing_key,
+                            model=req.model,
+                            endpoint="chat",
+                            prompt_tokens=usage.get("prompt_tokens", 0),
+                            completion_tokens=usage.get("completion_tokens", 0),
+                            request_id=result.get("id", ""),
+                            duration_ms=duration_ms,
+                        )
+                    )
+            return JSONResponse(result)
+
+        # Streaming: result is StreamWithUsage — wrap it to bill after stream ends
+        from app.control.provider.newapi import StreamWithUsage
+
+        _bk = billing_key
+        _model = req.model
+
+        async def _newapi_stream_with_billing():
+            async for line in result:
+                yield line
+            # Stream ended — now record billing from collected usage
+            if _bk is not None and isinstance(result, StreamWithUsage) and result.usage:
+                from app.control.billing.service import get_billing_service
+                svc = get_billing_service()
+                if svc is not None:
+                    u = result.usage
+                    duration_ms = int((_time.monotonic() - _start) * 1000)
+                    asyncio.create_task(
+                        svc.record_usage(
+                            _bk,
+                            model=_model,
+                            endpoint="chat",
+                            prompt_tokens=u.get("prompt_tokens", 0),
+                            completion_tokens=u.get("completion_tokens", 0),
+                            request_id="",
+                            duration_ms=duration_ms,
+                        )
+                    )
+
+        return StreamingResponse(
+            _newapi_stream_with_billing(), media_type="text/event-stream", headers=_SSE_HEADERS
         )
+
+    # ── Grok native path (unchanged) ─────────────────────────────────
+    _validate_chat(req)
     messages = [m.model_dump(exclude_none=True) for m in req.messages]
 
     # Determine endpoint type for billing
@@ -469,15 +574,53 @@ async def responses_endpoint(req: ResponsesCreateRequest):
 async def image_generations(request: Request, req: ImageGenerationRequest):
     import asyncio, time as _time
 
-    spec = model_registry.get(req.model)
-    if spec is None or not spec.enabled or not spec.is_image():
-        raise ValidationError(
-            f"Model {req.model!r} is not an image model", param="model"
-        )
-    _validate_image_n(req.model, req.n or 1, param="n")
-
     billing_key = getattr(request.state, "billing_key", None)
     _start = _time.monotonic()
+
+    spec = model_registry.get(req.model)
+
+    # ── NewAPI Fallback for image models ──────────────────────────────
+    if spec is None or not spec.enabled or not spec.is_image():
+        from app.control.provider.newapi import is_newapi_enabled, image_generations as newapi_img
+
+        if not is_newapi_enabled():
+            raise ValidationError(
+                f"Model {req.model!r} is not an image model", param="model"
+            )
+
+        result = await newapi_img(
+            model=req.model,
+            prompt=req.prompt,
+            n=req.n or 1,
+            size=req.size or "1024x1024",
+            response_format=req.response_format or "url",
+            quality=req.quality,
+            output_format=req.output_format,
+            background=req.background,
+            output_compression=req.output_compression,
+        )
+
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            from app.control.billing.pricing import get_pricing
+            svc = get_billing_service()
+            if svc is not None:
+                pricing = get_pricing(req.model)
+                duration_ms = int((_time.monotonic() - _start) * 1000)
+                asyncio.create_task(
+                    svc.record_usage(
+                        billing_key,
+                        model=req.model,
+                        endpoint="image",
+                        request_id=str(result.get("created", "")),
+                        duration_ms=duration_ms,
+                    )
+                )
+
+        return JSONResponse(result)
+
+    # ── Grok native image path (unchanged) ───────────────────────────
+    _validate_image_n(req.model, req.n or 1, param="n")
 
     from .images import generate as img_gen
 
@@ -519,21 +662,90 @@ async def videos_create(
     request: Request,
     model: Annotated[str, Form(...)],
     prompt: Annotated[str, Form(...)],
-    seconds: Annotated[int, Form()] = 6,
-    size: Annotated[
-        Literal["720x1280", "1280x720", "1024x1024", "1024x1792", "1792x1024"], Form()
-    ] = "720x1280",
-    resolution_name: Annotated[Literal["480p", "720p"] | None, Form()] = None,
+    seconds: Annotated[int | str, Form()] = 6,
+    size: Annotated[str, Form()] = "720x1280",
+    resolution_name: Annotated[str | None, Form()] = None,
     preset: Annotated[
         Literal["fun", "normal", "spicy", "custom"] | None, Form()
     ] = None,
     input_reference: Annotated[
         list[UploadFile] | None, File(alias="input_reference[]")
     ] = None,
+    aspect_ratio: Annotated[str | None, Form()] = None,
+    resolution: Annotated[str | None, Form()] = None,
 ):
-    from .video import create_video
+    import asyncio, time as _time
 
     billing_key = getattr(request.state, "billing_key", None)
+
+    # ── NewAPI Fallback: third-party video models ────────────────────
+    from app.control.provider.newapi import (
+        is_newapi_enabled, is_third_party_video_model, video_create as newapi_video_create,
+    )
+
+    if is_third_party_video_model(model) and is_newapi_enabled():
+        # Build JSON body for /v1/video/create
+        body: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "seconds": str(seconds),
+        }
+        if aspect_ratio:
+            body["aspect_ratio"] = aspect_ratio
+        elif size and ":" in str(size):
+            # size could be "16:9" style aspect ratio
+            body["aspect_ratio"] = str(size)
+        elif size:
+            body["size"] = str(size)
+        if resolution_name:
+            body["size"] = resolution_name.upper()  # "720p" → "720P"
+        elif resolution:
+            body["size"] = resolution.upper()
+
+        # Collect reference images
+        ref_urls: list[str] = []
+        if input_reference:
+            for f in input_reference[:7]:
+                data_uri = await _upload_to_data_uri(f, param="input_reference")
+                ref_urls.append(data_uri)
+        if ref_urls:
+            body["images"] = ref_urls
+        else:
+            body["images"] = []
+
+        _start = _time.monotonic()
+        try:
+            result = await newapi_video_create(body=body)
+        except Exception as exc:
+            logger.exception(
+                "newapi video_create proxy failed: model={} error={}", model, exc,
+            )
+            return JSONResponse(
+                {"error": {"message": str(exc), "type": "server_error"}},
+                status_code=502,
+            )
+
+        # Billing
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            svc = get_billing_service()
+            if svc is not None:
+                duration_ms = int((_time.monotonic() - _start) * 1000)
+                task_id = result.get("id") or result.get("task_id") or ""
+                asyncio.create_task(
+                    svc.record_usage(
+                        billing_key,
+                        model=model,
+                        endpoint="video",
+                        request_id=str(task_id),
+                        duration_ms=duration_ms,
+                    )
+                )
+
+        return JSONResponse(result)
+
+    # ── Grok native path ─────────────────────────────────────────────
+    from .video import create_video
 
     references_payload = None
     if input_reference:
@@ -550,7 +762,7 @@ async def videos_create(
 
         svc = get_billing_service()
         if svc is not None:
-            held_amount = video_cost(seconds, resolution=resolution_name or "720p")
+            held_amount = video_cost(int(seconds), resolution=resolution_name or "720p")
             if held_amount > 0:
                 ok = await svc.hold_balance(billing_key.key, held_amount)
                 if not ok:
@@ -562,7 +774,7 @@ async def videos_create(
     result = await create_video(
         model=model or "grok-video",
         prompt=prompt,
-        seconds=seconds,
+        seconds=int(seconds),
         size=size or "720x1280",
         resolution_name=resolution_name,
         preset=preset,
@@ -581,7 +793,22 @@ async def videos_create(
 async def videos_retrieve(video_id: str):
     from .video import retrieve
 
-    return JSONResponse(await retrieve(video_id))
+    try:
+        return JSONResponse(await retrieve(video_id))
+    except Exception:
+        pass
+
+    # ── NewAPI Fallback: try querying third-party video status ────────
+    from app.control.provider.newapi import is_newapi_enabled, video_query as newapi_video_query
+
+    if is_newapi_enabled():
+        try:
+            result = await newapi_video_query(video_id)
+            return JSONResponse(result)
+        except Exception as exc:
+            logger.debug("newapi video_query fallback failed: id={} error={}", video_id, exc)
+
+    raise ValidationError(f"Video {video_id!r} not found", param="video_id")
 
 
 @router.get(
@@ -608,25 +835,75 @@ async def image_edits(
     request: Request,
     model: Annotated[str, Form(...)],
     prompt: Annotated[str, Form(...)],
-    image: Annotated[list[UploadFile], File(..., alias="image[]")],
+    image: Annotated[list[UploadFile] | None, File(alias="image[]")] = None,
     mask: Annotated[UploadFile | None, File()] = None,
     n: Annotated[int, Form()] = 1,
     size: Annotated[str, Form()] = "1024x1024",
     response_format: Annotated[str, Form()] = "url",
+    quality: Annotated[str | None, Form()] = None,
+    output_format: Annotated[str | None, Form()] = None,
+    background: Annotated[str | None, Form()] = None,
+    output_compression: Annotated[int | None, Form()] = None,
 ):
     import asyncio, time as _time
 
+    billing_key = getattr(request.state, "billing_key", None)
+    _start = _time.monotonic()
+
     spec = model_registry.get(model)
+
+    # ── NewAPI Fallback for third-party image-edit models (GPT Image 2) ──
     if spec is None or not spec.enabled or not spec.is_image_edit():
-        raise ValidationError(
-            f"Model {model!r} is not an image-edit model", param="model"
+        from app.control.provider.newapi import is_newapi_enabled, image_edits as newapi_img_edit
+
+        if not is_newapi_enabled():
+            raise ValidationError(
+                f"Model {model!r} is not an image-edit model", param="model"
+            )
+
+        # Convert uploaded images to data URIs
+        images_b64: list[str] = []
+        if image:
+            for f in image[:16]:
+                data_uri = await _upload_to_data_uri(f, param="image")
+                images_b64.append(data_uri)
+
+        result = await newapi_img_edit(
+            model=model,
+            prompt=prompt,
+            images_b64=images_b64 or None,
+            n=n,
+            size=size,
+            response_format=response_format,
+            quality=quality,
+            output_format=output_format,
+            background=background,
+            output_compression=output_compression,
         )
+
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            svc = get_billing_service()
+            if svc is not None:
+                duration_ms = int((_time.monotonic() - _start) * 1000)
+                asyncio.create_task(
+                    svc.record_usage(
+                        billing_key,
+                        model=model,
+                        endpoint="image_edit",
+                        request_id=str(result.get("created", "")),
+                        duration_ms=duration_ms,
+                    )
+                )
+
+        return JSONResponse(result)
+
+    # ── Grok native path ─────────────────────────────────────────────
+    if not image:
+        raise ValidationError("image is required for native image edit", param="image")
     if mask is not None:
         raise ValidationError("mask is not supported yet", param="mask")
     _validate_image_edit_n(n, param="n")
-
-    billing_key = getattr(request.state, "billing_key", None)
-    _start = _time.monotonic()
 
     from .images import edit as img_edit
 
@@ -704,6 +981,226 @@ async def serve_image(id: str = Query(..., description="Image file ID")):
             return FileResponse(path, media_type=mime)
 
     raise ValidationError(f"Image {id!r} not found", param="id")
+
+
+# ---------------------------------------------------------------------------
+# /v1/video/generations — NewAPI third-party video models (JSON body)
+# ---------------------------------------------------------------------------
+
+_TAG_VIDEO_GEN = "NewAPI - Videos"
+
+
+@router.post(
+    "/video/generations",
+    tags=[_TAG_VIDEO_GEN],
+    dependencies=[Depends(verify_api_key)],
+)
+async def video_generations_create(request: Request):
+    """Submit a video generation task to the NewAPI relay.
+
+    Accepts any JSON body and passes it through unchanged.  Supports models
+    like omni-flash, omni-flash-vref, etc.  Returns the task submission response
+    (typically contains ``task_id``).
+    """
+    import asyncio, time as _time
+
+    from app.control.provider.newapi import is_newapi_enabled, video_generations as newapi_video
+
+    if not is_newapi_enabled():
+        return JSONResponse(
+            {"error": {"message": "NewAPI provider is not enabled", "type": "invalid_request_error"}},
+            status_code=400,
+        )
+
+    billing_key = getattr(request.state, "billing_key", None)
+    _start = _time.monotonic()
+
+    body = await request.json()
+    model = body.get("model", "unknown")
+
+    # Pre-hold for video billing (use default video pricing)
+    held_amount = 0.0
+    if billing_key is not None:
+        from app.control.billing.service import get_billing_service
+        from app.control.billing.pricing import get_pricing
+
+        svc = get_billing_service()
+        if svc is not None:
+            pricing = get_pricing(model)
+            if pricing.per_request > 0:
+                held_amount = pricing.per_request
+            elif pricing.is_video:
+                from app.control.billing.pricing import video_cost
+                duration = body.get("duration", 6)
+                held_amount = video_cost(int(duration) if duration else 6)
+            else:
+                # Fallback: use per_request from newapi config
+                from app.platform.config.snapshot import get_config as _cfg
+                held_amount = _cfg().get_float("providers.newapi.default_image_price", 0.04)
+
+            if held_amount > 0:
+                ok = await svc.hold_balance(billing_key.key, held_amount)
+                if not ok:
+                    return JSONResponse(
+                        {"error": {"message": "Insufficient balance", "type": "billing_error", "code": "insufficient_balance"}},
+                        status_code=402,
+                    )
+
+    try:
+        result = await newapi_video(body=body)
+    except Exception as exc:
+        # Refund hold on failure
+        if held_amount > 0 and billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            svc = get_billing_service()
+            if svc is not None:
+                await svc.refund_hold(billing_key.key, held_amount)
+        logger.exception("newapi video proxy failed: model={} error={}", model, exc)
+        return JSONResponse(
+            {"error": {"message": str(exc), "type": "server_error"}},
+            status_code=502,
+        )
+
+    # Record billing on successful submission
+    if billing_key is not None:
+        from app.control.billing.service import get_billing_service
+        svc = get_billing_service()
+        if svc is not None:
+            duration_ms = int((_time.monotonic() - _start) * 1000)
+            task_id = result.get("task_id") or result.get("id") or ""
+            asyncio.create_task(
+                svc.record_usage(
+                    billing_key,
+                    model=model,
+                    endpoint="video",
+                    request_id=str(task_id),
+                    duration_ms=duration_ms,
+                    held_amount=held_amount,
+                )
+            )
+
+    return JSONResponse(result)
+
+
+@router.get(
+    "/video/generations/{task_id}",
+    tags=[_TAG_VIDEO_GEN],
+    dependencies=[Depends(verify_api_key)],
+)
+async def video_generations_poll(task_id: str):
+    """Poll the status of a video generation task from the NewAPI relay."""
+    from app.control.provider.newapi import is_newapi_enabled, video_generations_poll as newapi_poll
+
+    if not is_newapi_enabled():
+        return JSONResponse(
+            {"error": {"message": "NewAPI provider is not enabled", "type": "invalid_request_error"}},
+            status_code=400,
+        )
+
+    try:
+        result = await newapi_poll(task_id)
+    except Exception as exc:
+        logger.exception("newapi video poll failed: task_id={} error={}", task_id, exc)
+        return JSONResponse(
+            {"error": {"message": str(exc), "type": "server_error"}},
+            status_code=502,
+        )
+
+    return JSONResponse(result)
+
+
+# ---------------------------------------------------------------------------
+# /v1/video/create + /v1/video/query — third-party GROK video models
+# ---------------------------------------------------------------------------
+
+_TAG_VIDEO_CREATE = "Third-Party - Videos"
+
+
+@router.post(
+    "/video/create",
+    tags=[_TAG_VIDEO_CREATE],
+    dependencies=[Depends(verify_api_key)],
+)
+async def video_create_endpoint(request: Request):
+    """Unified video creation endpoint for third-party GROK video models.
+
+    Accepts JSON body with model, prompt, aspect_ratio, size, seconds, images.
+    Routes to the NewAPI relay's /v1/video/create interface.
+    """
+    import asyncio, time as _time
+
+    from app.control.provider.newapi import is_newapi_enabled, video_create as newapi_video_create
+
+    if not is_newapi_enabled():
+        return JSONResponse(
+            {"error": {"message": "NewAPI provider is not enabled", "type": "invalid_request_error"}},
+            status_code=400,
+        )
+
+    billing_key = getattr(request.state, "billing_key", None)
+    _start = _time.monotonic()
+    body = await request.json()
+    model = body.get("model", "unknown")
+
+    try:
+        result = await newapi_video_create(body=body)
+    except Exception as exc:
+        logger.exception("newapi video_create failed: model={} error={}", model, exc)
+        return JSONResponse(
+            {"error": {"message": str(exc), "type": "server_error"}},
+            status_code=502,
+        )
+
+    # Billing
+    if billing_key is not None:
+        from app.control.billing.service import get_billing_service
+        svc = get_billing_service()
+        if svc is not None:
+            duration_ms = int((_time.monotonic() - _start) * 1000)
+            task_id = result.get("id") or result.get("task_id") or ""
+            asyncio.create_task(
+                svc.record_usage(
+                    billing_key,
+                    model=model,
+                    endpoint="video",
+                    request_id=str(task_id),
+                    duration_ms=duration_ms,
+                )
+            )
+
+    return JSONResponse(result)
+
+
+@router.get(
+    "/video/query",
+    tags=[_TAG_VIDEO_CREATE],
+    dependencies=[Depends(verify_api_key)],
+)
+async def video_query_endpoint(
+    id: str = Query(..., description="Video task ID"),
+):
+    """Query the status of a third-party video generation task.
+
+    Uses GET /v1/video/query?id={VIDEO_ID} on the NewAPI relay.
+    """
+    from app.control.provider.newapi import is_newapi_enabled, video_query as newapi_video_query
+
+    if not is_newapi_enabled():
+        return JSONResponse(
+            {"error": {"message": "NewAPI provider is not enabled", "type": "invalid_request_error"}},
+            status_code=400,
+        )
+
+    try:
+        result = await newapi_video_query(id)
+    except Exception as exc:
+        logger.exception("newapi video_query failed: id={} error={}", id, exc)
+        return JSONResponse(
+            {"error": {"message": str(exc), "type": "server_error"}},
+            status_code=502,
+        )
+
+    return JSONResponse(result)
 
 
 # ---------------------------------------------------------------------------

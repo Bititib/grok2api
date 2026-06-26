@@ -173,3 +173,24 @@ asset_upload_concurrency = 10
 asset_list_concurrency   = 50
 # 删除 Asset 并发数（全局，跨所有并发请求共享；也作为管理后台批量清理的 token 级默认值）
 asset_delete_concurrency = 50
+
+
+# ==================== 第三方中转 (NewAPI / One API) ====================
+[providers.newapi]
+# 是否启用 NewAPI 中转（未注册模型自动转发）
+enabled = false
+# NewAPI 中转站地址（例如 https://your-newapi.com）
+base_url = ""
+# NewAPI API Key
+api_key = ""
+# 请求超时（秒）
+timeout = 120
+# 是否在 /v1/models 中合并展示 NewAPI 的模型列表
+merge_models = true
+
+# NewAPI 模型默认定价（当 billing.pricing 中无该模型条目时使用）
+# 按 1M tokens 计价
+default_input_price = 1.0
+default_output_price = 3.0
+# 图片模型按次计价
+default_image_price = 0.04

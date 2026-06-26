@@ -205,17 +205,85 @@ async def query_usage(
 @router.get("/usage/summary")
 async def usage_summary(
     api_key: str | None = Query(None),
+    model: str | None = Query(None),
+    endpoint: str | None = Query(None),
     start_time: int | None = Query(None),
     end_time: int | None = Query(None),
 ):
     svc = _require_service()
     summary = await svc.get_usage_summary(
         api_key=api_key,
+        model=model,
+        endpoint=endpoint,
         start_time=start_time,
         end_time=end_time,
     )
     return Response(
         content=orjson.dumps(summary),
+        media_type="application/json",
+    )
+
+
+@router.get("/usage/by-model")
+async def usage_by_model(
+    start_time: int | None = Query(None),
+    end_time: int | None = Query(None),
+    source: str | None = Query(None, description="Filter: 'grok' or 'newapi'"),
+):
+    """Aggregate usage statistics grouped by model name.
+
+    Optional ``source`` filter:
+      - ``grok``   → only models registered in the Grok model registry
+      - ``newapi`` → only models NOT in the registry (third-party)
+    """
+    svc = _require_service()
+
+    conditions: list[str] = []
+    params: list[Any] = []
+    if start_time:
+        conditions.append("created_at >= ?")
+        params.append(start_time)
+    if end_time:
+        conditions.append("created_at <= ?")
+        params.append(end_time)
+    where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
+
+    sql = f"""
+        SELECT model, endpoint,
+               COUNT(*) as requests,
+               COALESCE(SUM(prompt_tokens), 0) as prompt_tokens,
+               COALESCE(SUM(completion_tokens), 0) as completion_tokens,
+               COALESCE(SUM(cost), 0) as total_cost
+        FROM usage_logs{where}
+        GROUP BY model, endpoint
+        ORDER BY total_cost DESC
+    """
+    rows = await svc.repo.db.execute_fetchall(sql, params)
+
+    # Determine source for each model
+    from app.control.model import registry as model_registry
+
+    items = []
+    for r in rows:
+        model_name = r[0]
+        is_grok = model_registry.get(model_name) is not None
+        model_source = "grok" if is_grok else "newapi"
+
+        if source and model_source != source:
+            continue
+
+        items.append({
+            "model": model_name,
+            "endpoint": r[1],
+            "source": model_source,
+            "requests": r[2],
+            "prompt_tokens": r[3],
+            "completion_tokens": r[4],
+            "total_cost": round(r[5], 6),
+        })
+
+    return Response(
+        content=orjson.dumps({"items": items}),
         media_type="application/json",
     )
 

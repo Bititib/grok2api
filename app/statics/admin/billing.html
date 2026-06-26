@@ -77,10 +77,34 @@
     .dialog-btn-danger { color:#b42318; background:#fff5f4; border-color:#fecaca }
     .dialog-btn-danger:hover { background:#feeceb }
 
+    /* Filter bar */
+    .filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap }
+    .filter-bar select, .filter-bar input { height:32px; padding:0 10px; border-radius:8px; border:1px solid #e0dcd4; background:#fff; font-size:12px; color:#333; outline:none }
+    .filter-bar select:focus, .filter-bar input:focus { border-color:#111 }
+    .filter-bar input { width:180px }
+    .filter-bar select { min-width:100px }
+    .filter-reset { font-size:11px; color:#8a8a8a; cursor:pointer; padding:6px 10px }
+    .filter-reset:hover { color:#555 }
+
+    /* Model stats cards */
+    .model-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px }
+    .model-card { background:#fff; border-radius:12px; padding:16px; display:flex; flex-direction:column; gap:8px }
+    .model-card-hd { display:flex; align-items:center; justify-content:space-between }
+    .model-card-name { font-size:14px; font-weight:600; color:#111 }
+    .model-card-source { font-size:10px; font-weight:500; padding:2px 8px; border-radius:999px }
+    .source-grok { background:#eef6ff; color:#2563eb }
+    .source-newapi { background:#fef3e2; color:#d97706 }
+    .model-card-stats { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px }
+    .model-card-stat { text-align:center }
+    .model-card-stat-label { font-size:10px; color:#8a8a8a }
+    .model-card-stat-num { font-size:15px; font-weight:600; margin-top:2px }
+
     /* Responsive */
     @media(max-width:768px){
       .stat-grid{grid-template-columns:repeat(2,1fr)}
       .tab-bar{overflow-x:auto}
+      .filter-bar{flex-direction:column;align-items:stretch}
+      .filter-bar input{width:100%}
     }
   </style>
 </head>
@@ -106,6 +130,7 @@
   <div class="tab-bar">
     <div class="tab-item active" data-tab="keys" onclick="switchTab('keys')">API Key 管理</div>
     <div class="tab-item" data-tab="usage" onclick="switchTab('usage')">用量明细</div>
+    <div class="tab-item" data-tab="models" onclick="switchTab('models')">模型统计</div>
   </div>
 
   <!-- Keys Tab -->
@@ -126,11 +151,41 @@
 
   <!-- Usage Tab -->
   <div class="tab-panel" id="panel-usage">
+    <div class="filter-bar">
+      <input id="f-model" placeholder="搜索模型名..." oninput="applyUsageFilter()">
+      <select id="f-endpoint" onchange="applyUsageFilter()">
+        <option value="">全部类型</option>
+        <option value="chat">Chat</option>
+        <option value="image">Image</option>
+        <option value="image_edit">Image Edit</option>
+        <option value="video">Video</option>
+      </select>
+      <select id="f-source" onchange="applyUsageFilter()">
+        <option value="">全部来源</option>
+        <option value="grok">Grok 原生</option>
+        <option value="newapi">第三方 (NewAPI)</option>
+      </select>
+      <span class="filter-reset" onclick="resetUsageFilter()">重置</span>
+    </div>
     <div class="table-card">
       <table><thead><tr>
-        <th>时间</th><th>Key</th><th>模型</th><th>类型</th><th>Token (入/出)</th><th>视频秒数</th><th>费用</th><th>状态</th><th>耗时</th>
+        <th>时间</th><th>Key</th><th>模型</th><th>来源</th><th>类型</th><th>Token (入/出)</th><th>费用</th><th>状态</th><th>耗时</th>
       </tr></thead><tbody id="usage-tbody"><tr><td colspan="9" class="empty-state">加载中...</td></tr></tbody></table>
       <div class="pagi" id="usage-pagi"></div>
+    </div>
+  </div>
+
+  <!-- Models Tab -->
+  <div class="tab-panel" id="panel-models">
+    <div class="filter-bar">
+      <select id="f-model-source" onchange="loadModelStats()">
+        <option value="">全部来源</option>
+        <option value="grok">Grok 原生</option>
+        <option value="newapi">第三方 (NewAPI)</option>
+      </select>
+    </div>
+    <div class="model-grid" id="model-grid">
+      <div class="empty-state">加载中...</div>
     </div>
   </div>
 </main>
@@ -218,7 +273,22 @@ function switchTab(name) {
   document.querySelectorAll('.tab-item').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
   if (name === 'usage' && document.getElementById('usage-tbody').children.length <= 1) loadUsage();
+  if (name === 'models') loadModelStats();
 }
+
+/* ─── Grok model registry cache (for source detection) ──── */
+let _grokModels = null;
+async function getGrokModels() {
+  if (_grokModels) return _grokModels;
+  try {
+    // Fetch from the model registry via list endpoint - only local models have owned_by=xai
+    const r = await fetch('/v1/models', { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+    const d = await r.json();
+    _grokModels = new Set((d.data||[]).filter(m => m.owned_by === 'xai').map(m => m.id));
+  } catch { _grokModels = new Set(); }
+  return _grokModels;
+}
+function isGrokModel(name) { return _grokModels && _grokModels.has(name); }
 
 /* ─── Keys ────────────────────────────────────────────────── */
 async function loadKeys() {
@@ -227,7 +297,6 @@ async function loadKeys() {
     _keysTotal = d.total;
     renderKeys(d.items);
     renderPagi('keys-pagi', _keysPage, Math.ceil(d.total / PAGE_SIZE), p => { _keysPage = p; loadKeys(); });
-    // Update stats
     let totalBal = 0, totalCharged = 0;
     d.items.forEach(k => { totalBal += k.balance; totalCharged += k.total_charged; });
     document.getElementById('s-keys').textContent = d.total;
@@ -260,8 +329,21 @@ function renderKeys(items) {
   }).join('');
 }
 
-/* ─── Usage ───────────────────────────────────────────────── */
+/* ─── Usage (with filters) ────────────────────────────────── */
+let _usageFilterTimer = null;
+function applyUsageFilter() {
+  clearTimeout(_usageFilterTimer);
+  _usageFilterTimer = setTimeout(() => { _usagePage = 1; loadUsage(); }, 300);
+}
+function resetUsageFilter() {
+  document.getElementById('f-model').value = '';
+  document.getElementById('f-endpoint').value = '';
+  document.getElementById('f-source').value = '';
+  _usagePage = 1; loadUsage();
+}
+
 async function loadUsageSummary() {
+  await getGrokModels();
   try {
     const d = await api('/usage/summary');
     document.getElementById('s-requests').textContent = d.total_requests || 0;
@@ -269,10 +351,27 @@ async function loadUsageSummary() {
 }
 
 async function loadUsage() {
+  await getGrokModels();
+  const modelFilter = (document.getElementById('f-model')?.value || '').trim();
+  const endpointFilter = document.getElementById('f-endpoint')?.value || '';
+  const sourceFilter = document.getElementById('f-source')?.value || '';
+
+  let qs = `page=${_usagePage}&page_size=${PAGE_SIZE}`;
+  if (modelFilter) qs += `&model=${encodeURIComponent(modelFilter)}`;
+  if (endpointFilter) qs += `&endpoint=${encodeURIComponent(endpointFilter)}`;
+
   try {
-    const d = await api(`/usage?page=${_usagePage}&page_size=${PAGE_SIZE}`);
+    const d = await api(`/usage?${qs}`);
     _usageTotal = d.total;
-    renderUsage(d.items);
+    let items = d.items;
+    // Client-side source filter
+    if (sourceFilter) {
+      items = items.filter(u => {
+        const isGrok = isGrokModel(u.model);
+        return sourceFilter === 'grok' ? isGrok : !isGrok;
+      });
+    }
+    renderUsage(items);
     renderPagi('usage-pagi', _usagePage, Math.ceil(d.total / PAGE_SIZE), p => { _usagePage = p; loadUsage(); });
   } catch (e) { showToast('加载失败: ' + e.message, 'error'); }
 }
@@ -284,18 +383,67 @@ function renderUsage(items) {
     const time = new Date(u.created_at).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});
     const keyShort = u.api_key ? u.api_key.slice(0,8)+'...' : '—';
     const statusCls = u.status==='success' ? 'badge-active' : 'badge-expired';
+    const isGrok = isGrokModel(u.model);
+    const srcLabel = isGrok ? 'Grok' : 'NewAPI';
+    const srcCls = isGrok ? 'source-grok' : 'source-newapi';
     return `<tr>
       <td style="font-size:12px;color:#8a8a8a;white-space:nowrap">${time}</td>
       <td><span class="tok" style="font-size:11px">${esc(u.key_name||keyShort)}</span></td>
       <td style="font-size:12px">${esc(u.model)}</td>
+      <td><span class="model-card-source ${srcCls}">${srcLabel}</span></td>
       <td><span class="badge badge-active" style="font-size:10px">${esc(u.endpoint)}</span></td>
       <td style="font-variant-numeric:tabular-nums;font-size:12px">${u.prompt_tokens} / ${u.completion_tokens}</td>
-      <td style="font-variant-numeric:tabular-nums">${u.video_seconds||'—'}</td>
       <td style="font-variant-numeric:tabular-nums;font-weight:600">${u.cost.toFixed(6)}</td>
       <td><span class="badge ${statusCls}">${u.status}</span></td>
       <td style="font-size:12px;color:#8a8a8a">${u.duration_ms}ms</td>
     </tr>`;
   }).join('');
+}
+
+/* ─── Model Stats ─────────────────────────────────────────── */
+async function loadModelStats() {
+  const source = document.getElementById('f-model-source')?.value || '';
+  const grid = document.getElementById('model-grid');
+  grid.innerHTML = '<div class="empty-state">加载中...</div>';
+
+  try {
+    let qs = '';
+    if (source) qs = `?source=${source}`;
+    const d = await api(`/usage/by-model${qs}`);
+    const items = d.items || [];
+    if (!items.length) { grid.innerHTML = '<div class="empty-state">暂无模型调用数据</div>'; return; }
+
+    grid.innerHTML = items.map(m => {
+      const srcCls = m.source === 'grok' ? 'source-grok' : 'source-newapi';
+      const srcLabel = m.source === 'grok' ? 'Grok' : 'NewAPI';
+      return `<div class="model-card">
+        <div class="model-card-hd">
+          <span class="model-card-name">${esc(m.model)}</span>
+          <span class="model-card-source ${srcCls}">${srcLabel} · ${esc(m.endpoint)}</span>
+        </div>
+        <div class="model-card-stats">
+          <div class="model-card-stat">
+            <div class="model-card-stat-label">请求数</div>
+            <div class="model-card-stat-num">${m.requests}</div>
+          </div>
+          <div class="model-card-stat">
+            <div class="model-card-stat-label">Token</div>
+            <div class="model-card-stat-num">${formatNum(m.prompt_tokens + m.completion_tokens)}</div>
+          </div>
+          <div class="model-card-stat">
+            <div class="model-card-stat-label">费用</div>
+            <div class="model-card-stat-num" style="color:#ea580c">${m.total_cost.toFixed(4)}</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) { grid.innerHTML = `<div class="empty-state">加载失败: ${esc(e.message)}</div>`; }
+}
+
+function formatNum(n) {
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1) + 'K';
+  return String(n);
 }
 
 /* ─── Pagination ──────────────────────────────────────────── */
