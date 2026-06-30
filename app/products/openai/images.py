@@ -196,8 +196,8 @@ def _is_imagine_public_url(url: str) -> bool:
     return host.startswith("imagine-public")
 
 
-def _save_image(raw: bytes, mime: str, file_id: str) -> str:
-    return save_local_image(raw, mime, file_id)
+def _save_image(raw: bytes, mime: str, file_id: str, prompt: str | None = None, model: str | None = None) -> str:
+    return save_local_image(raw, mime, file_id, prompt=prompt, model=model)
 
 
 async def _download_image_bytes(token: str, url: str) -> tuple[bytes, str]:
@@ -219,6 +219,8 @@ async def _resolve_image_output(
     url: str,
     response_format: str,
     blob_b64: str | None = None,
+    prompt: str | None = None,
+    model: str | None = None,
 ) -> _ImageOutput:
     fmt = _normalize_response_format(response_format)
     cfg = get_config()
@@ -250,6 +252,8 @@ async def _resolve_image_output(
         raw,
         mime,
         _extract_image_file_id(url),
+        prompt,
+        model,
     )
     local_url = _local_image_url(file_id)
     return _ImageOutput(api_value=local_url, markdown_value=f"![image]({local_url})")
@@ -308,6 +312,7 @@ async def generate(
             response_format = response_format,
             stream          = stream,
             chat_format     = chat_format,
+            model           = model,
         )
 
     acct = await _acct_dir.reserve_any(
@@ -374,6 +379,8 @@ async def generate(
                         url=ev.get("url", ""),
                         response_format=response_format,
                         blob_b64=ev.get("blob") or None,
+                        prompt=prompt,
+                        model=model,
                     )
                     content = _output_content(image, chat_format=chat_format)
                     chunk = make_stream_chunk(response_id, model, content)
@@ -447,6 +454,8 @@ async def generate(
                     url=ev.get("url", ""),
                     response_format=response_format,
                     blob_b64=ev.get("blob") or None,
+                    prompt=prompt,
+                    model=model,
                 )
                 finals.append(image)
         success = True
@@ -493,6 +502,7 @@ async def _generate_lite(
     response_format: str,
     stream:          bool,
     chat_format:     bool,
+    model:           str | None = None,
 ) -> dict | AsyncGenerator[str, None]:
     """Generate images via the chat endpoint (Aurora model path).
 
@@ -524,6 +534,7 @@ async def _generate_lite(
                     timeout_s=timeout_s,
                     response_format=response_format,
                     progress_cb=_progress,
+                    model=model,
                 )
             )
 
@@ -577,6 +588,7 @@ async def _generate_lite(
             updates=reasoning_updates,
             enabled=chat_format,
         ),
+        model=model,
     )
     if chat_format:
         content = "\n\n".join(image.markdown_value for image in images)
@@ -847,6 +859,7 @@ async def _collect_edit_images(
     aspect_ratio: str = "1:1",
     timeout_s: float,
     progress_cb: Callable[[int, int], Awaitable[None]] | None = None,
+    model: str | None = None,
 ) -> list[_ImageOutput]:
     """Collect up to *requested_n* edit results.
 
@@ -876,6 +889,8 @@ async def _collect_edit_images(
                     token=token,
                     url=url,
                     response_format=response_format,
+                    prompt=prompt,
+                    model=model or "grok-imagine-image",
                 )
             )
             if len(images) >= requested_n:
@@ -980,6 +995,7 @@ async def _run_lite_request(
     timeout_s: float,
     response_format: str,
     progress_cb: Callable[[int], Awaitable[None]] | None = None,
+    model: str | None = None,
 ) -> _ImageOutput:
     from app.dataplane.account import _directory as _acct_dir
 
@@ -1032,6 +1048,8 @@ async def _run_lite_request(
                             token=token,
                             url=ev.content,
                             response_format=response_format,
+                            prompt=prompt,
+                            model=model or spec.model_name,
                         )
                         success = True
                         return image
@@ -1086,6 +1104,7 @@ async def _run_lite_batch(
     timeout_s: float,
     response_format: str,
     progress_cb: Callable[[int, int], Awaitable[None]] | None = None,
+    model: str | None = None,
 ) -> list[_ImageOutput]:
     results: list[_ImageOutput | None] = [None] * n
 
@@ -1096,6 +1115,7 @@ async def _run_lite_batch(
             timeout_s=timeout_s,
             response_format=response_format,
             progress_cb=None if progress_cb is None else lambda progress: progress_cb(idx, progress),
+            model=model,
         )
 
     async with asyncio.TaskGroup() as tg:
@@ -1193,6 +1213,7 @@ async def edit(
                         aspect_ratio=aspect_ratio,
                         timeout_s=timeout_s,
                         progress_cb=_progress,
+                        model=model,
                     )
                 )
                 while not task.done() or not queue.empty():
@@ -1263,6 +1284,7 @@ async def edit(
             aspect_ratio=aspect_ratio,
             timeout_s=timeout_s,
             progress_cb=_progress,
+            model=model,
         )
         success = True
     except BaseException as exc:

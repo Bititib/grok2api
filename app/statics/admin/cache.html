@@ -274,6 +274,33 @@
         grid-template-columns:repeat(2, minmax(0, 1fr));
       }
     }
+
+    /* Preview Modal */
+    .pv-modal {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center; z-index: 1000;
+      opacity: 0; pointer-events: none; transition: opacity 0.15s ease;
+    }
+    .pv-modal.active { opacity: 1; pointer-events: auto; }
+    .pv-content {
+      background: #fff; border-radius: 16px; width: 90%; max-width: 640px;
+      box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);
+      overflow: hidden; display: flex; flex-direction: column; max-height: 85vh;
+      animation: pv-scale 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes pv-scale { from { transform: scale(0.95); } to { transform: scale(1); } }
+    .pv-media-wrap { background: #000; display: flex; align-items: center; justify-content: center; position: relative; aspect-ratio: 16/9; }
+    .pv-media-wrap img, .pv-media-wrap video { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .pv-info { padding: 20px; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+    .pv-prompt-title { font-size: 13px; font-weight: 600; color: #222; margin-top: 4px; }
+    .pv-prompt-box {
+      background: #f5f5f5; padding: 12px; border-radius: 8px; font-size: 13px; color: #444;
+      line-height: 1.5; max-height: 120px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    }
+    .pv-footer {
+      padding: 12px 20px; border-top: 1px solid #efefef; display: flex; justify-content: flex-end; gap: 8px;
+    }
   </style>
 </head>
 <body>
@@ -390,9 +417,11 @@
           <tr>
             <th style="width:36px"><input type="checkbox" class="cb" id="cb-local-all" onchange="toggleAllLocal(this.checked)"></th>
             <th data-i18n="cache.colFileName">文件名</th>
+            <th style="width:140px">模型</th>
+            <th>提示词</th>
             <th style="width:100px" data-i18n="cache.colSize">大小</th>
             <th style="width:160px" data-i18n="cache.colModified">修改时间</th>
-            <th style="width:56px" data-i18n="cache.colActions">操作</th>
+            <th style="width:80px" data-i18n="cache.colActions">操作</th>
           </tr>
         </thead>
         <tbody id="cache-tbody"></tbody>
@@ -436,6 +465,24 @@
         </thead>
         <tbody id="assets-tbody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <!-- Preview Modal -->
+  <div id="pv-modal" class="pv-modal" onclick="if(event.target===this)closePreview()">
+    <div class="pv-content">
+      <div class="pv-media-wrap" id="pv-media-wrap"></div>
+      <div class="pv-info">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px">
+          <div style="font-weight:600; font-size:14px; color:#111; word-break:break-all" id="pv-name-val">-</div>
+          <span class="meta-badge" id="pv-model-badge">-</span>
+        </div>
+        <div class="pv-prompt-title">提示词</div>
+        <div class="pv-prompt-box" id="pv-prompt-box">-</div>
+      </div>
+      <div class="pv-footer">
+        <button class="page-action-btn" onclick="closePreview()">关闭</button>
+      </div>
     </div>
   </div>
 
@@ -721,10 +768,13 @@ function _renderTable(view = getLocalView()) {
   const items = view.items;
   syncLocalSelectAll(view);
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="table-empty">${_esc(tr('cache.emptyLocal', null, '暂无缓存文件'))}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="table-empty">${_esc(tr('cache.emptyLocal', null, '暂无缓存文件'))}</td></tr>`;
     return;
   }
-  tbody.innerHTML = items.map((f) => `
+  tbody.innerHTML = items.map((f) => {
+    const modelStr = f.model ? `<span class="meta-badge">${_esc(f.model)}</span>` : '<span style="color:#bbb">—</span>';
+    const promptStr = f.prompt ? `<div style="max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${_esc(f.prompt)}">${_esc(f.prompt)}</div>` : '<span style="color:#bbb">—</span>';
+    return `
     <tr>
       <td><input type="checkbox" class="cb local-row-cb" data-name="${_esc(f.name)}" ${_localSel.has(f.name) ? 'checked' : ''} onchange="toggleLocalRow(this)"></td>
       <td>
@@ -738,10 +788,13 @@ function _renderTable(view = getLocalView()) {
           <span class="row-value">${_esc(f.name)}</span>
         </div>
       </td>
+      <td>${modelStr}</td>
+      <td>${promptStr}</td>
       <td>${_fmtBytes(f.size_bytes)}</td>
       <td>${_fmtTime(f.modified_at)}</td>
       <td><div class="row-actions"><button class="row-action" onclick="viewFile('${_esc(f.name)}')" title="${_esc(tr('cache.actionView', null, '查看'))}" aria-label="${_esc(tr('cache.actionView', null, '查看'))}"><svg viewBox="0 0 24 24" stroke-width="1.8"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/><circle cx="12" cy="12" r="3"/></svg></button><button class="row-action row-action-danger" onclick="deleteFile('${_esc(f.name)}')" title="${_esc(tr('cache.actionDelete', null, '删除'))}" aria-label="${_esc(tr('cache.actionDelete', null, '删除'))}"><svg viewBox="0 0 24 24" stroke-width="1.8"><path d="M5 7h14"/><path d="M9 7V4h6v3"/><path d="M8 10v7"/><path d="M12 10v7"/><path d="M16 10v7"/><path d="M7 7l1 13h8l1-13"/></svg></button></div></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   syncLocalSelectAll(view);
 }
 
@@ -820,12 +873,39 @@ async function deleteFile(name) {
 }
 
 function viewFile(name) {
+  const item = _localItems.find(f => f.name === name);
+  if (!item) return;
+
   const url = localFileUrl(name);
   if (!url) {
     showToast(tr('cache.viewUnavailable', null, '当前文件暂不支持查看'), 'error');
     return;
   }
-  window.open(url, '_blank', 'noopener');
+
+  const modal = document.getElementById('pv-modal');
+  const mediaWrap = document.getElementById('pv-media-wrap');
+  const promptBox = document.getElementById('pv-prompt-box');
+  const modelBadge = document.getElementById('pv-model-badge');
+  const nameVal = document.getElementById('pv-name-val');
+
+  if (_type === 'video') {
+    mediaWrap.innerHTML = `<video controls autoplay loop src="${url}" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:8px;"></video>`;
+  } else {
+    mediaWrap.innerHTML = `<img src="${url}" style="max-width:100%; max-height:100%; object-fit:contain; border-radius:8px;" />`;
+  }
+
+  nameVal.textContent = item.name;
+  modelBadge.textContent = item.model || 'Grok / Native';
+  promptBox.textContent = item.prompt || '无提示词记录 (No Prompt)';
+
+  modal.classList.add('active');
+}
+
+function closePreview() {
+  const modal = document.getElementById('pv-modal');
+  const mediaWrap = document.getElementById('pv-media-wrap');
+  if (mediaWrap) mediaWrap.innerHTML = '';
+  if (modal) modal.classList.remove('active');
 }
 
 function localFileUrl(name) {

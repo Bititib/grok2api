@@ -49,6 +49,9 @@ _DEFAULT_PRICING: dict[str, ModelPricing] = {
     "grok-imagine-video-1.5-preview": ModelPricing(is_video=True),
     "grok-imagine-video-1.5-fast": ModelPricing(is_video=True),
     "grok-imagine-1.0-video":  ModelPricing(is_video=True),
+    "omni-flash":              ModelPricing(is_video=True),
+    "omni-flash-vref":         ModelPricing(is_video=True),
+    "omni-watermark-remover":  ModelPricing(per_request=0.10),
 }
 
 
@@ -93,6 +96,10 @@ def get_pricing(model: str) -> ModelPricing:
     cfg = get_config()
 
     # Try config-based pricing
+    is_vid = cfg.get_bool(f"billing.pricing.{model}.is_video", False)
+    if is_vid:
+        return ModelPricing(is_video=True)
+
     input_price = cfg.get_float(f"billing.pricing.{model}.input", -1)
     output_price = cfg.get_float(f"billing.pricing.{model}.output", -1)
     per_req = cfg.get_float(f"billing.pricing.{model}.per_request", -1)
@@ -133,13 +140,13 @@ def calculate_cost(
     """Calculate the cost of one API call."""
     pricing = get_pricing(model)
 
+    # Per-request models (images or per-request video)
+    if pricing.per_request > 0:
+        return pricing.per_request
+
     # Video models
     if pricing.is_video or endpoint == "video":
         return video_cost(video_seconds, resolution=video_resolution, model=model)
-
-    # Per-request models (images)
-    if pricing.per_request > 0:
-        return pricing.per_request
 
     # Token-based models
     cost = (

@@ -209,9 +209,9 @@ async def _download_image_bytes(token: str, url: str) -> tuple[bytes, str]:
     return b"".join(chunks), (content_type or infer_content_type(url) or "image/jpeg")
 
 
-def _save_image(raw: bytes, mime: str, image_id: str) -> str:
+def _save_image(raw: bytes, mime: str, image_id: str, prompt: str | None = None, model: str | None = None) -> str:
     """Save raw bytes to ``${DATA_DIR}/files/images`` and return the file ID."""
-    return save_local_image(raw, mime, image_id)
+    return save_local_image(raw, mime, image_id, prompt=prompt, model=model)
 
 
 def _is_imagine_public_url(url: str) -> bool:
@@ -222,7 +222,7 @@ def _is_imagine_public_url(url: str) -> bool:
     return host.startswith("imagine-public")
 
 
-async def _resolve_image(token: str, url: str, image_id: str) -> str:
+async def _resolve_image(token: str, url: str, image_id: str, prompt: str | None = None, model: str | None = None) -> str:
     """Return the image embed text for the response body based on image_format config.
 
     Format values:
@@ -260,7 +260,7 @@ async def _resolve_image(token: str, url: str, image_id: str) -> str:
         return f"![image](data:{mime};base64,{b64})"
 
     # local_url / local_md: save to disk and return local path
-    file_id = await asyncio.to_thread(_save_image, raw, mime, image_id)
+    file_id = await asyncio.to_thread(_save_image, raw, mime, image_id, prompt, model)
     app_url = cfg.get_str("app.app_url", "").rstrip("/")
     local_url = (
         f"{app_url}/v1/files/image?id={file_id}"
@@ -633,7 +633,7 @@ async def completions(
 
                         if not tool_calls_emitted:
                             for url, img_id in adapter.image_urls:
-                                img_text = await _resolve_image(token, url, img_id)
+                                img_text = await _resolve_image(token, url, img_id, prompt=message, model=model)
                                 chunk = make_stream_chunk(
                                     response_id, model, img_text + "\n"
                                 )
@@ -814,7 +814,7 @@ async def completions(
     full_text = "".join(adapter.text_buf)
     if adapter.image_urls:
         img_texts = await asyncio.gather(
-            *[_resolve_image(token, url, img_id) for url, img_id in adapter.image_urls],
+            *[_resolve_image(token, url, img_id, prompt=message, model=model) for url, img_id in adapter.image_urls],
             return_exceptions=True,
         )
         for img_text in img_texts:

@@ -214,3 +214,42 @@ video_cost_per_second_720p = 0.05
 [billing.pricing.grok-imagine-1.0-video]
 video_cost_per_second_480p = 0.02
 video_cost_per_second_720p = 0.03
+
+# GPT Image 2 models pricing (2x upstream price)
+[billing.pricing.gpt-image-2]
+per_request = 0.04
+
+[billing.pricing.gpt-image-2-plus]
+per_request = 0.08
+
+[billing.pricing.gpt-image-2-pro]
+per_request = 0.08
+
+[billing.pricing.gpt-image-2-max]
+per_request = 0.12
+
+# Google Image models pricing (2x upstream price)
+[billing.pricing.gemini-3-pro-image-preview]
+per_request = 0.20
+
+[billing.pricing.gemini-3.1-flash-image-preview]
+per_request = 0.14
+
+# Omni Video models pricing (2x upstream price)
+[billing.pricing.omni-flash]
+is_video = true
+video_cost_per_second_720p = 0.10
+video_cost_per_second_1080p = 0.20
+
+[billing.pricing.omni-flash-vref]
+is_video = true
+video_cost_per_second_720p = 0.22
+video_cost_per_second_1080p = 0.3
+
+[billing.pricing.omni-watermark-remover]
+per_request = 0.10
+
+[billing.pricing.omni-moderation-latest]
+per_request = 0.02
+
+

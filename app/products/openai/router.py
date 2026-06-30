@@ -1037,8 +1037,19 @@ async def video_generations_create(request: Request):
                 held_amount = pricing.per_request
             elif pricing.is_video:
                 from app.control.billing.pricing import video_cost
-                duration = body.get("duration", 6)
-                held_amount = video_cost(int(duration) if duration else 6)
+                duration = body.get("duration") or body.get("seconds") or 6
+                raw_res = str(body.get("resolution") or "").strip().lower()
+                if "1080" in raw_res:
+                    res = "1080p"
+                elif "480" in raw_res:
+                    res = "480p"
+                else:
+                    res = "720p"
+                try:
+                    video_sec = int(duration)
+                except (ValueError, TypeError):
+                    video_sec = 6
+                held_amount = video_cost(video_sec, resolution=res, model=model)
             else:
                 # Fallback: use per_request from newapi config
                 from app.platform.config.snapshot import get_config as _cfg
@@ -1074,11 +1085,28 @@ async def video_generations_create(request: Request):
         if svc is not None:
             duration_ms = int((_time.monotonic() - _start) * 1000)
             task_id = result.get("task_id") or result.get("id") or ""
+            
+            # Extract actual video details for final billing record
+            duration_val = body.get("duration") or body.get("seconds") or 6
+            try:
+                video_sec = int(duration_val)
+            except (ValueError, TypeError):
+                video_sec = 6
+            raw_res = str(body.get("resolution") or "").strip().lower()
+            if "1080" in raw_res:
+                video_res = "1080p"
+            elif "480" in raw_res:
+                video_res = "480p"
+            else:
+                video_res = "720p"
+
             asyncio.create_task(
                 svc.record_usage(
                     billing_key,
                     model=model,
                     endpoint="video",
+                    video_seconds=video_sec,
+                    video_resolution=video_res,
                     request_id=str(task_id),
                     duration_ms=duration_ms,
                     held_amount=held_amount,

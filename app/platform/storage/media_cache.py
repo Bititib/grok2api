@@ -40,40 +40,44 @@ class LocalMediaCacheStore:
         }
         self._initialized_dbs: set[Path] = set()
 
-    def save_image(self, raw: bytes, mime: str, file_id: str) -> str:
+    def save_image(self, raw: bytes, mime: str, file_id: str, prompt: str | None = None, model: str | None = None) -> str:
         """Persist an image and return the stable local file ID."""
         ext = ".png" if "png" in mime.lower() else ".jpg"
-        self._save("image", file_id=file_id, raw=raw, suffix=ext)
+        self._save("image", file_id=file_id, raw=raw, suffix=ext, prompt=prompt, model=model)
         return file_id
 
-    def save_video(self, raw: bytes, file_id: str) -> Path:
+    def save_video(self, raw: bytes, file_id: str, prompt: str | None = None, model: str | None = None) -> Path:
         """Persist a video and return the final file path."""
-        return self._save("video", file_id=file_id, raw=raw, suffix=".mp4")
+        return self._save("video", file_id=file_id, raw=raw, suffix=".mp4", prompt=prompt, model=model)
 
     def reconcile(self, media_type: MediaType) -> None:
         """Rebuild the on-disk index for one media type and enforce limits."""
-        max_bytes = self._limit_bytes(media_type)
-        if max_bytes <= 0:
-            return
         with self._guard(media_type), closing(self._connect()) as conn:
-            rows = []
+            disk_files = {}
             for path in self._iter_files(media_type):
                 try:
                     stat = path.stat()
+                    disk_files[path.name] = (int(stat.st_size), int(stat.st_mtime_ns))
                 except OSError:
                     continue
-                rows.append(
-                    (
-                        media_type,
-                        path.name,
-                        int(stat.st_size),
-                        int(stat.st_mtime_ns),
-                        int(stat.st_mtime_ns),
-                    )
+
+            if disk_files:
+                placeholders = ",".join("?" for _ in disk_files)
+                conn.execute(
+                    f"DELETE FROM {_TABLE} WHERE media_type = ? AND name NOT IN ({placeholders})",
+                    (media_type, *disk_files.keys()),
                 )
-            conn.execute(f"DELETE FROM {_TABLE} WHERE media_type = ?", (media_type,))
-            if rows:
-                conn.executemany(
+            else:
+                conn.execute(f"DELETE FROM {_TABLE} WHERE media_type = ?", (media_type,))
+
+            for name, (size_bytes, mtime_ns) in disk_files.items():
+                created_at_ns = self._lookup_created_at_ns(
+                    conn,
+                    media_type,
+                    name,
+                    fallback=mtime_ns,
+                )
+                conn.execute(
                     f"""
                     INSERT INTO {_TABLE} (
                         media_type,
@@ -82,9 +86,19 @@ class LocalMediaCacheStore:
                         created_at_ns,
                         updated_at_ns
                     ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(media_type, name) DO UPDATE SET
+                        size_bytes = excluded.size_bytes,
+                        updated_at_ns = excluded.updated_at_ns
                     """,
-                    rows,
+                    (
+                        media_type,
+                        name,
+                        size_bytes,
+                        created_at_ns,
+                        mtime_ns,
+                    ),
                 )
+
             self._enforce_limit_locked(conn, media_type)
             conn.commit()
 
@@ -121,19 +135,18 @@ class LocalMediaCacheStore:
         file_id: str,
         raw: bytes,
         suffix: str,
+        prompt: str | None = None,
+        model: str | None = None,
     ) -> Path:
         path = self._media_dir(media_type) / f"{file_id}{suffix}"
-        if self._limit_bytes(media_type) <= 0:
-            self._write_if_missing(path, raw)
-            return path
-
         with self._guard(media_type), closing(self._connect()) as conn:
             if path.exists():
-                self._upsert_existing_row(conn, media_type, path)
+                self._upsert_existing_row(conn, media_type, path, prompt=prompt, model=model)
             else:
                 self._atomic_write(path, raw)
-                self._upsert_new_row(conn, media_type, path)
-            self._enforce_limit_locked(conn, media_type, protected_names={path.name})
+                self._upsert_new_row(conn, media_type, path, prompt=prompt, model=model)
+            if self._limit_bytes(media_type) > 0:
+                self._enforce_limit_locked(conn, media_type, protected_names={path.name})
             conn.commit()
         return path
 
@@ -247,6 +260,14 @@ class LocalMediaCacheStore:
                     ON {_TABLE} (media_type, created_at_ns, name);
                 """
             )
+            # Dynamically add prompt and model columns if they don't exist
+            cursor = conn.cursor()
+            cursor.execute(f"PRAGMA table_info({_TABLE})")
+            columns = [row[1] for row in cursor.fetchall()]
+            if "prompt" not in columns:
+                conn.execute(f"ALTER TABLE {_TABLE} ADD COLUMN prompt TEXT")
+            if "model" not in columns:
+                conn.execute(f"ALTER TABLE {_TABLE} ADD COLUMN model TEXT")
             conn.commit()
             self._initialized_dbs.add(db_path)
 
@@ -255,6 +276,8 @@ class LocalMediaCacheStore:
         conn: sqlite3.Connection,
         media_type: MediaType,
         path: Path,
+        prompt: str | None = None,
+        model: str | None = None,
     ) -> None:
         try:
             stat = path.stat()
@@ -273,11 +296,15 @@ class LocalMediaCacheStore:
                 name,
                 size_bytes,
                 created_at_ns,
-                updated_at_ns
-            ) VALUES (?, ?, ?, ?, ?)
+                updated_at_ns,
+                prompt,
+                model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(media_type, name) DO UPDATE SET
                 size_bytes = excluded.size_bytes,
-                updated_at_ns = excluded.updated_at_ns
+                updated_at_ns = excluded.updated_at_ns,
+                prompt = COALESCE(excluded.prompt, {_TABLE}.prompt),
+                model = COALESCE(excluded.model, {_TABLE}.model)
             """,
             (
                 media_type,
@@ -285,6 +312,8 @@ class LocalMediaCacheStore:
                 int(stat.st_size),
                 created_at_ns,
                 int(stat.st_mtime_ns),
+                prompt,
+                model,
             ),
         )
 
@@ -293,6 +322,8 @@ class LocalMediaCacheStore:
         conn: sqlite3.Connection,
         media_type: MediaType,
         path: Path,
+        prompt: str | None = None,
+        model: str | None = None,
     ) -> None:
         stat = path.stat()
         now_ns = time.time_ns()
@@ -303,12 +334,16 @@ class LocalMediaCacheStore:
                 name,
                 size_bytes,
                 created_at_ns,
-                updated_at_ns
-            ) VALUES (?, ?, ?, ?, ?)
+                updated_at_ns,
+                prompt,
+                model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(media_type, name) DO UPDATE SET
                 size_bytes = excluded.size_bytes,
                 created_at_ns = excluded.created_at_ns,
-                updated_at_ns = excluded.updated_at_ns
+                updated_at_ns = excluded.updated_at_ns,
+                prompt = COALESCE(excluded.prompt, {_TABLE}.prompt),
+                model = COALESCE(excluded.model, {_TABLE}.model)
             """,
             (
                 media_type,
@@ -316,6 +351,8 @@ class LocalMediaCacheStore:
                 int(stat.st_size),
                 now_ns,
                 now_ns,
+                prompt,
+                model,
             ),
         )
 
@@ -459,14 +496,14 @@ class LocalMediaCacheStore:
 local_media_cache = LocalMediaCacheStore()
 
 
-def save_local_image(raw: bytes, mime: str, file_id: str) -> str:
+def save_local_image(raw: bytes, mime: str, file_id: str, prompt: str | None = None, model: str | None = None) -> str:
     """Persist an image to local cache and return the file ID."""
-    return local_media_cache.save_image(raw, mime, file_id)
+    return local_media_cache.save_image(raw, mime, file_id, prompt=prompt, model=model)
 
 
-def save_local_video(raw: bytes, file_id: str) -> Path:
+def save_local_video(raw: bytes, file_id: str, prompt: str | None = None, model: str | None = None) -> Path:
     """Persist a video to local cache and return the file path."""
-    return local_media_cache.save_video(raw, file_id)
+    return local_media_cache.save_video(raw, file_id, prompt=prompt, model=model)
 
 
 def clear_local_media_files(media_type: MediaType) -> int:

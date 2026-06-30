@@ -3,166 +3,153 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Grok2API - 第三方 API 管理</title>
+  <title>Grok2API - 多渠道 API 管理</title>
   <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
   <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
   <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
   <style>
-    body { background:#FAF9F5 }
-    .page-hd { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px }
-    .page-title { font-size:22px; font-weight:700; line-height:1.2 }
-    .page-sub { font-size:13px; color:var(--fg-muted); margin-top:5px }
+    body{background:#FAF9F5}
+    .page-hd{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
+    .page-title{font-size:22px;font-weight:700;line-height:1.2}
+    .page-sub{font-size:13px;color:var(--fg-muted);margin-top:5px}
+    .section{margin-bottom:24px}
+    .section-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+    .section-title{font-size:15px;font-weight:600}
+    .section-action{font-size:12px;color:#8a8a8a;cursor:pointer}.section-action:hover{color:#555}
 
-    /* Status cards */
-    .status-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px }
-    .status-cell { min-height:88px; padding:14px 16px; border-radius:12px; background:#fff; display:flex; flex-direction:column; gap:10px }
-    .status-top { display:flex; align-items:center; justify-content:space-between }
-    .status-label { font-size:11px; color:#8a8a8a; text-transform:uppercase; letter-spacing:.5px }
-    .status-icon { width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center }
-    .status-icon svg { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:1.8 }
-    .status-num { font-size:22px; font-weight:600; line-height:1; margin-top:auto }
-    .status-sub { font-size:11px; color:#8a8a8a; margin-top:2px }
+    .ch-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:24px}
+    .ch-card{background:#fff;border-radius:14px;padding:18px 20px;border:2px solid transparent;transition:all .2s;cursor:pointer}
+    .ch-card:hover{border-color:#e0dcd4;box-shadow:0 4px 16px rgba(0,0,0,.04)}
+    .ch-card.active{border-color:#111;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+    .ch-card-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+    .ch-name{font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px}
+    .ch-id{font-size:11px;color:#8a8a8a;font-family:ui-monospace,monospace}
+    .ch-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .ch-dot.on{background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,.4)}
+    .ch-dot.off{background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.3)}
+    .ch-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .ch-stat-label{font-size:11px;color:#8a8a8a;text-transform:uppercase;letter-spacing:.4px}
+    .ch-stat-val{font-size:16px;font-weight:600;margin-top:2px}
+    .ch-url{margin-top:12px;font-size:11px;color:#8a8a8a;font-family:ui-monospace,monospace;word-break:break-all}
+    .ch-models-tags{margin-top:10px;display:flex;flex-wrap:wrap;gap:4px}
+    .ch-tag{height:20px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:500;display:inline-flex;align-items:center;background:#f0edff;color:#5b21b6}
+    .ch-actions{margin-top:14px;display:flex;gap:6px;justify-content:flex-end}
+    .ch-btn{height:28px;padding:0 12px;border-radius:8px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid #e0dcd4;background:#fff;color:#333;transition:background .15s}
+    .ch-btn:hover{background:#f5f3ee}
+    .ch-btn-del{color:#dc2626;border-color:#fecaca}.ch-btn-del:hover{background:#fef2f2}
 
-    /* Connection indicator */
-    .conn-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px }
-    .conn-dot.online { background:#22c55e; box-shadow:0 0 6px rgba(34,197,94,.4) }
-    .conn-dot.offline { background:#ef4444; box-shadow:0 0 6px rgba(239,68,68,.3) }
+    .config-card{background:#fff;border-radius:14px;padding:20px}
+    .config-row{display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #f5f3ee}
+    .config-row:last-child{border-bottom:none}
+    .config-key{width:140px;font-size:12px;color:#8a8a8a;flex-shrink:0}
+    .config-val{font-size:13px;color:#333;flex:1}
+    .cfg-input{width:100%;height:30px;padding:0 8px;border-radius:6px;border:1px solid #e0dcd4;font-size:13px;font-family:ui-monospace,monospace;outline:none;box-sizing:border-box}
+    .cfg-input:focus{border-color:#111}
+    .cfg-input-sm{width:80px}
+    .cfg-tags-wrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+    .cfg-tag{height:22px;padding:0 8px;border-radius:999px;font-size:11px;font-weight:500;display:inline-flex;align-items:center;gap:4px;background:#eef6ff;color:#2563eb}
+    .cfg-tag-x{cursor:pointer;opacity:.6;font-size:13px}.cfg-tag-x:hover{opacity:1}
+    .cfg-tag-input{height:22px;width:120px;padding:0 6px;border-radius:999px;border:1px dashed #d0d0d0;font-size:11px;outline:none;background:transparent}
+    .cfg-tag-input:focus{border-color:#2563eb}
 
-    /* Section */
-    .section { margin-bottom:24px }
-    .section-hd { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px }
-    .section-title { font-size:15px; font-weight:600 }
-    .section-action { font-size:12px; color:#8a8a8a; cursor:pointer }
-    .section-action:hover { color:#555 }
+    .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:200;align-items:center;justify-content:center}
+    .modal-overlay.open{display:flex}
+    .modal-box{background:#fff;border-radius:16px;padding:24px;width:min(480px,92vw);max-height:80vh;overflow-y:auto;box-shadow:0 20px 50px rgba(0,0,0,.12)}
+    .modal-title{font-size:16px;font-weight:600;margin-bottom:16px}
+    .modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}
+    .modal-btn{height:34px;padding:0 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none}
+    .modal-btn-cancel{background:#f5f3ee;color:#333}.modal-btn-save{background:#111;color:#fff}
 
-    /* Config card */
-    .config-card { background:#fff; border-radius:14px; padding:20px }
-    .config-row { display:flex; align-items:center; padding:10px 0; border-bottom:1px solid #f5f3ee }
-    .config-row:last-child { border-bottom:none }
-    .config-key { width:160px; font-size:12px; color:#8a8a8a; flex-shrink:0 }
-    .config-val { font-size:13px; color:#333; font-family:ui-monospace,monospace; word-break:break-all }
+    /* Model cards */
+    .model-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+    .model-card{background:#fff;border-radius:12px;padding:14px 16px;transition:box-shadow .15s}
+    .model-card:hover{box-shadow:0 2px 12px rgba(0,0,0,.05)}
+    .model-card-name{font-size:13px;font-weight:600;color:#1a1a1a;word-break:break-all}
+    .model-card-meta{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+    .model-card-owner{height:20px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:500;display:inline-flex;align-items:center;background:#eef6ff;color:#2563eb}
+    .model-card-time{font-size:11px;color:#aaa}
+    .empty-state{padding:48px 16px;color:#8a8a8a;font-size:13px;text-align:center}
+    .filter-bar{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+    .filter-bar input{height:32px;padding:0 10px;border-radius:8px;border:1px solid #e0dcd4;background:#fff;font-size:12px;color:#333;outline:none;width:240px}
+    .filter-bar input:focus{border-color:#111}
+    .model-count{font-size:12px;color:#8a8a8a}
+    .filter-chip{height:26px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid #e0dcd4;background:#fff;color:#555;display:inline-flex;align-items:center;gap:4px;transition:all .15s}
+    .filter-chip.active{background:#111;color:#fff;border-color:#111}
+    .filter-chip:hover{border-color:#999}
 
-    /* Model table */
-    .table-card { background:#fff; border-radius:14px; overflow-x:auto }
-    table { width:100%; border-collapse:collapse }
-    th { background:#fff; font-size:11px; font-weight:500; color:#9b9b9b; padding:11px 16px; text-align:left }
-    td { font-size:13px; padding:12px 16px; border-bottom:none; color:#3f3f3f; vertical-align:middle }
-    tr:hover td { background:#fdfdfd }
-    .badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:500 }
-    .badge-owner { color:#2563eb; background:#eef6ff }
-    .empty-state { padding:48px 16px; color:#8a8a8a; font-size:13px; text-align:center }
-
-    /* Filter */
-    .filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:12px }
-    .filter-bar input { height:32px; padding:0 10px; border-radius:8px; border:1px solid #e0dcd4; background:#fff; font-size:12px; color:#333; outline:none; width:240px }
-    .filter-bar input:focus { border-color:#111 }
-    .model-count { font-size:12px; color:#8a8a8a }
-
-    /* Responsive */
-    @media(max-width:768px){
-      .status-grid{grid-template-columns:repeat(2,1fr)}
-    }
+    @media(max-width:768px){.ch-grid{grid-template-columns:1fr}.model-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}}
   </style>
 </head>
 <body>
-
 <div id="admin-header" data-active="/admin/newapi"></div>
-
 <main class="admin-main">
   <div class="page-hd">
     <div>
-      <div class="page-title">第三方 API 管理</div>
-      <div class="page-sub">管理 NewAPI 中转站连接、查看上游余额和可用模型</div>
+      <div class="page-title">多渠道 API 管理</div>
+      <div class="page-sub">管理多个第三方中转站渠道，点击渠道卡片查看对应模型</div>
     </div>
+    <button class="ch-btn" style="height:34px;padding:0 16px;background:#111;color:#fff;border:none;border-radius:8px;font-weight:600" onclick="openAddModal()">+ 添加渠道</button>
   </div>
 
-  <!-- Status Cards -->
-  <div class="status-grid" id="status-grid">
-    <div class="status-cell">
-      <div class="status-top">
-        <div class="status-label">连接状态</div>
-        <span class="status-icon" style="color:#8a8a8a"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-      </div>
-      <div class="status-num" id="s-conn"><span class="conn-dot offline"></span>检测中...</div>
-    </div>
-    <div class="status-cell">
-      <div class="status-top">
-        <div class="status-label">上游余额</div>
-        <span class="status-icon" style="color:#16a34a"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
-      </div>
-      <div class="status-num" id="s-balance" style="color:#16a34a">—</div>
-      <div class="status-sub" id="s-username"></div>
-    </div>
-    <div class="status-cell">
-      <div class="status-top">
-        <div class="status-label">可用模型</div>
-        <span class="status-icon" style="color:#7c3aed"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg></span>
-      </div>
-      <div class="status-num" id="s-models" style="color:#7c3aed">—</div>
-    </div>
-    <div class="status-cell">
-      <div class="status-top">
-        <div class="status-label">超时设置</div>
-        <span class="status-icon" style="color:#ea580c"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></span>
-      </div>
-      <div class="status-num" id="s-timeout" style="color:#ea580c">—</div>
-    </div>
-  </div>
-
-  <!-- Config Section -->
   <div class="section">
     <div class="section-hd">
-      <div class="section-title">连接配置</div>
-      <div style="display:flex;gap:8px">
-        <span class="section-action" onclick="loadStatus();loadConfig()">🔄 刷新</span>
-      </div>
+      <div class="section-title">渠道状态</div>
+      <span class="section-action" onclick="refreshAll()">🔄 刷新全部</span>
     </div>
-    <div class="config-card" id="config-card">
-      <div class="config-row">
-        <span class="config-key">启用状态</span>
-        <span class="config-val"><label style="cursor:pointer"><input type="checkbox" id="f-enabled"> 启用第三方 API 转发</label></span>
-      </div>
-      <div class="config-row">
-        <span class="config-key">中转站地址</span>
-        <span class="config-val" style="flex:1"><input id="f-url" placeholder="https://new.dszyym.com" style="width:100%;height:30px;padding:0 8px;border-radius:6px;border:1px solid #e0dcd4;font-size:13px;font-family:ui-monospace,monospace;outline:none"></span>
-      </div>
-      <div class="config-row">
-        <span class="config-key">API Key</span>
-        <span class="config-val" style="flex:1;display:flex;gap:6px;align-items:center">
-          <input id="f-key" type="password" placeholder="sk-..." style="flex:1;height:30px;padding:0 8px;border-radius:6px;border:1px solid #e0dcd4;font-size:13px;font-family:ui-monospace,monospace;outline:none">
-          <span style="cursor:pointer;font-size:12px;color:#8a8a8a;white-space:nowrap" onclick="toggleKeyVis()">👁 显示</span>
-        </span>
-      </div>
-      <div class="config-row">
-        <span class="config-key">请求超时</span>
-        <span class="config-val"><input id="f-timeout" type="number" value="300" style="width:80px;height:30px;padding:0 8px;border-radius:6px;border:1px solid #e0dcd4;font-size:13px;outline:none"> 秒</span>
-      </div>
-      <div class="config-row">
-        <span class="config-key">模型列表合并</span>
-        <span class="config-val"><label style="cursor:pointer"><input type="checkbox" id="f-merge" checked> 在 /v1/models 中展示第三方模型</label></span>
-      </div>
+    <div class="ch-grid" id="ch-grid"><div class="empty-state">加载中...</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-hd">
+      <div class="section-title">默认渠道配置</div>
+    </div>
+    <div class="config-card" id="default-config">
+      <div class="config-row"><span class="config-key">启用状态</span><span class="config-val"><label style="cursor:pointer"><input type="checkbox" id="f-enabled"> 启用第三方 API 转发</label></span></div>
+      <div class="config-row"><span class="config-key">中转站地址</span><span class="config-val"><input id="f-url" class="cfg-input" placeholder="https://example.com"></span></div>
+      <div class="config-row"><span class="config-key">API Key</span><span class="config-val" style="display:flex;gap:6px;align-items:center"><input id="f-key" type="password" class="cfg-input" placeholder="sk-..." style="flex:1"><span style="cursor:pointer;font-size:12px;color:#8a8a8a" onclick="let e=document.getElementById('f-key');e.type=e.type==='password'?'text':'password'">👁</span></span></div>
+      <div class="config-row"><span class="config-key">请求超时</span><span class="config-val"><input id="f-timeout" type="number" value="300" class="cfg-input cfg-input-sm"> 秒</span></div>
+      <div class="config-row"><span class="config-key">模型合并</span><span class="config-val"><label style="cursor:pointer"><input type="checkbox" id="f-merge" checked> 在 /v1/models 中展示</label></span></div>
       <div class="config-row" style="border-bottom:none;justify-content:flex-end;padding-top:14px">
-        <button id="btn-save" onclick="saveConfig()" style="height:34px;padding:0 20px;border-radius:8px;border:none;background:#111;color:#fff;font-size:13px;font-weight:500;cursor:pointer">保存配置</button>
+        <button id="btn-save-default" onclick="saveDefaultConfig()" style="height:34px;padding:0 20px;border-radius:8px;border:none;background:#111;color:#fff;font-size:13px;font-weight:500;cursor:pointer">保存默认配置</button>
       </div>
     </div>
   </div>
 
-  <!-- Models Section -->
   <div class="section">
     <div class="section-hd">
-      <div class="section-title">上游模型列表</div>
+      <div class="section-title" id="models-section-title">上游模型列表</div>
       <span class="model-count" id="model-count"></span>
     </div>
     <div class="filter-bar">
       <input id="f-model-search" placeholder="搜索模型名..." oninput="filterModels()">
+      <span class="filter-chip active" id="chip-all" onclick="selectChannel(null)">全部</span>
     </div>
-    <div class="table-card">
-      <table><thead><tr>
-        <th>模型名称</th><th>提供者</th><th>创建时间</th>
-      </tr></thead><tbody id="models-tbody"><tr><td colspan="3" class="empty-state">加载中...</td></tr></tbody></table>
-    </div>
+    <div class="model-grid" id="model-grid"><div class="empty-state">加载中...</div></div>
   </div>
 </main>
+
+<div class="modal-overlay" id="ch-modal">
+  <div class="modal-box">
+    <div class="modal-title" id="modal-title">添加渠道</div>
+    <input type="hidden" id="m-edit-idx" value="-1">
+    <div style="display:grid;gap:0">
+      <div class="config-row"><span class="config-key">渠道 ID</span><span class="config-val"><input id="m-id" class="cfg-input" placeholder="station_xxx"></span></div>
+      <div class="config-row"><span class="config-key">渠道名称</span><span class="config-val"><input id="m-name" class="cfg-input" placeholder="XX 中转站"></span></div>
+      <div class="config-row"><span class="config-key">Base URL</span><span class="config-val"><input id="m-url" class="cfg-input" placeholder="https://example.com"></span></div>
+      <div class="config-row"><span class="config-key">API Key</span><span class="config-val"><input id="m-key" class="cfg-input" type="password" placeholder="sk-..."></span></div>
+      <div class="config-row"><span class="config-key">超时(秒)</span><span class="config-val"><input id="m-timeout" class="cfg-input cfg-input-sm" type="number" value="120"></span></div>
+      <div class="config-row" style="align-items:flex-start"><span class="config-key" style="padding-top:4px">路由模型</span><span class="config-val">
+        <div class="cfg-tags-wrap" id="m-models-tags"></div>
+        <input id="m-models-input" class="cfg-tag-input" placeholder="输入模型名，回车添加" style="margin-top:6px">
+        <div style="font-size:11px;color:#8a8a8a;margin-top:4px">指定该渠道专属模型，留空则通用</div>
+      </span></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn modal-btn-cancel" onclick="closeModal()">取消</button>
+      <button class="modal-btn modal-btn-save" onclick="saveChannel()">保存</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
 <script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
@@ -170,165 +157,145 @@
 <script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
 <script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
 <script>
-let _adminToken = '';
-let _allModels = [];
+let _t='', _allModels=[], _chStatuses=[], _extraCh=[], _modalModels=[], _selCh=null;
 
-(async () => {
-  _adminToken = await adminKey.get();
-  if (!_adminToken) { location.href = '/admin/login'; return; }
-  try { if (!(await verifyKey(ADMIN_API+'/verify', _adminToken))) { location.href='/admin/login'; return; } } catch { location.href='/admin/login'; return; }
-  loadStatus();
-  loadConfig();
-  loadModels();
-  await renderSiteFooter?.();
+(async()=>{
+  _t=await adminKey.get();
+  if(!_t){location.href='/admin/login';return}
+  try{if(!(await verifyKey(ADMIN_API+'/verify',_t))){location.href='/admin/login';return}}catch{location.href='/admin/login';return}
+  loadDefaultConfig(); refreshAll(); await renderSiteFooter?.();
 })();
 
-async function api(path) {
-  const r = await fetch(ADMIN_API + '/newapi' + path, {
-    headers: { 'Authorization': `Bearer ${_adminToken}` },
-  });
-  if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail?.message || r.statusText); }
-  return r.json();
+async function api(p){const r=await fetch(ADMIN_API+'/newapi'+p,{headers:{'Authorization':'Bearer '+_t}});if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e?.detail?.message||r.statusText)}return r.json()}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+async function refreshAll(){loadStatus();loadModels()}
+
+async function loadDefaultConfig(){
+  try{
+    const r=await fetch(ADMIN_API+'/config',{headers:{'Authorization':'Bearer '+_t}});
+    const raw=await r.json(), na=raw?.providers?.newapi||{};
+    document.getElementById('f-enabled').checked=!!na.enabled;
+    document.getElementById('f-url').value=na.base_url||'';
+    document.getElementById('f-key').value=na.api_key||'';
+    document.getElementById('f-timeout').value=na.timeout||300;
+    document.getElementById('f-merge').checked=na.merge_models!==false;
+    _extraCh=Array.isArray(na.channels)?na.channels:[];
+  }catch(e){showToast('配置加载失败: '+e.message,'error')}
 }
 
-/* ─── Toggle Key Visibility ──────────────────────── */
-function toggleKeyVis() {
-  const el = document.getElementById('f-key');
-  el.type = el.type === 'password' ? 'text' : 'password';
+async function saveDefaultConfig(){
+  const btn=document.getElementById('btn-save-default');
+  btn.disabled=true;btn.textContent='保存中...';
+  const payload={providers:{newapi:{enabled:document.getElementById('f-enabled').checked,base_url:document.getElementById('f-url').value.trim(),api_key:document.getElementById('f-key').value.trim(),timeout:parseInt(document.getElementById('f-timeout').value)||300,merge_models:document.getElementById('f-merge').checked,channels:_extraCh}}};
+  try{
+    const r=await fetch(ADMIN_API+'/config',{method:'POST',headers:{'Authorization':'Bearer '+_t,'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!r.ok)throw new Error((await r.json().catch(()=>({}))).detail?.message||r.statusText);
+    showToast('配置已保存','success');setTimeout(refreshAll,500);
+  }catch(e){showToast('保存失败: '+e.message,'error')}
+  finally{btn.disabled=false;btn.textContent='保存默认配置'}
 }
 
-/* ─── Status ─────────────────────────────────────── */
-async function loadStatus() {
-  try {
-    const d = await api('/status');
-    const connEl = document.getElementById('s-conn');
-    if (d.connected) {
-      connEl.innerHTML = '<span class="conn-dot online"></span>已连接';
-    } else {
-      connEl.innerHTML = `<span class="conn-dot offline"></span>未连接`;
-    }
-    if (!d.enabled) {
-      connEl.innerHTML = '<span class="conn-dot offline"></span>未启用';
-    }
-
-    const balEl = document.getElementById('s-balance');
-    if (d.balance !== null && d.balance !== undefined) {
-      balEl.textContent = '$' + d.balance.toFixed(4);
-    } else {
-      balEl.textContent = d.connected ? '无法获取' : '—';
-    }
-
-    const userEl = document.getElementById('s-username');
-    if (d.username) userEl.textContent = d.username;
-
-    document.getElementById('s-models').textContent = d.models_count || '—';
-
-    if (d.error && !d.connected) {
-      showToast(d.error, 'error');
-    }
-  } catch (e) {
-    document.getElementById('s-conn').innerHTML = '<span class="conn-dot offline"></span>请求失败';
-    showToast('状态查询失败: ' + e.message, 'error');
-  }
+/* ─── Channel Cards ─── */
+async function loadStatus(){
+  try{
+    const d=await api('/status');
+    _chStatuses=d.channels||[d];
+    renderCards();
+  }catch(e){document.getElementById('ch-grid').innerHTML='<div class="empty-state">'+esc(e.message)+'</div>'}
 }
 
-/* ─── Config (load into form) ────────────────────── */
-async function loadConfig() {
-  try {
-    // Load raw config to get actual values (including full api_key for editing)
-    const r = await fetch(ADMIN_API + '/config', {
-      headers: { 'Authorization': `Bearer ${_adminToken}` },
-    });
-    const raw = await r.json();
-    const na = raw?.providers?.newapi || {};
-
-    document.getElementById('f-enabled').checked = !!na.enabled;
-    document.getElementById('f-url').value = na.base_url || '';
-    document.getElementById('f-key').value = na.api_key || '';
-    document.getElementById('f-timeout').value = na.timeout || 120;
-    document.getElementById('f-merge').checked = na.merge_models !== false;
-
-    document.getElementById('s-timeout').textContent = (na.timeout || 120) + 's';
-  } catch (e) {
-    showToast('配置加载失败: ' + e.message, 'error');
-  }
+function selectChannel(chId){
+  _selCh=chId;
+  document.querySelectorAll('.ch-card').forEach(c=>c.classList.toggle('active',c.dataset.chid===chId));
+  document.getElementById('chip-all').classList.toggle('active',!chId);
+  const title=document.getElementById('models-section-title');
+  title.textContent=chId?`渠道模型 — ${chId}`:'上游模型列表';
+  filterModels();
 }
 
-/* ─── Config (save from form) ────────────────────── */
-async function saveConfig() {
-  const btn = document.getElementById('btn-save');
-  btn.disabled = true;
-  btn.textContent = '保存中...';
-
-  const payload = {
-    providers: {
-      newapi: {
-        enabled: document.getElementById('f-enabled').checked,
-        base_url: document.getElementById('f-url').value.trim(),
-        api_key: document.getElementById('f-key').value.trim(),
-        timeout: parseInt(document.getElementById('f-timeout').value) || 120,
-        merge_models: document.getElementById('f-merge').checked,
-      }
-    }
-  };
-
-  try {
-    const r = await fetch(ADMIN_API + '/config', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${_adminToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail?.message || r.statusText);
-    showToast('配置已保存，即时生效', 'success');
-    // Reload status and models
-    setTimeout(() => { loadStatus(); loadModels(); }, 500);
-  } catch (e) {
-    showToast('保存失败: ' + e.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '保存配置';
-  }
-}
-
-/* ─── Models ─────────────────────────────────────── */
-async function loadModels() {
-  try {
-    const d = await api('/models');
-    _allModels = d.items || [];
-    document.getElementById('model-count').textContent = `共 ${_allModels.length} 个模型`;
-    renderModels(_allModels);
-  } catch (e) {
-    document.getElementById('models-tbody').innerHTML = `<tr><td colspan="3" class="empty-state">加载失败: ${esc(e.message)}</td></tr>`;
-  }
-}
-
-function filterModels() {
-  const q = (document.getElementById('f-model-search')?.value || '').trim().toLowerCase();
-  const filtered = q ? _allModels.filter(m => m.id.toLowerCase().includes(q)) : _allModels;
-  renderModels(filtered);
-}
-
-function renderModels(items) {
-  const tb = document.getElementById('models-tbody');
-  if (!items.length) {
-    tb.innerHTML = '<tr><td colspan="3" class="empty-state">暂无模型数据</td></tr>';
-    return;
-  }
-  tb.innerHTML = items.map(m => {
-    const time = m.created ? new Date(m.created * 1000).toLocaleDateString('zh-CN') : '—';
-    const owner = m.owned_by || 'unknown';
-    return `<tr>
-      <td style="font-weight:500">${esc(m.id)}</td>
-      <td><span class="badge badge-owner">${esc(owner)}</span></td>
-      <td style="font-size:12px;color:#8a8a8a">${time}</td>
-    </tr>`;
+function renderCards(){
+  const g=document.getElementById('ch-grid');
+  if(!_chStatuses.length){g.innerHTML='<div class="empty-state">暂无渠道</div>';return}
+  g.innerHTML=_chStatuses.map(ch=>{
+    const dot=ch.connected?'on':'off', bal=ch.balance!=null?'$'+ch.balance.toFixed(4):'—';
+    const isDef=ch.id==='default', models=(_extraCh.find(c=>c.id===ch.id)||{}).models||[];
+    const isActive=_selCh===ch.id;
+    return `<div class="ch-card${isActive?' active':''}" data-chid="${esc(ch.id)}" onclick="selectChannel('${esc(ch.id)}')">
+      <div class="ch-card-hd"><div class="ch-name"><span class="ch-dot ${dot}"></span>${esc(ch.name||ch.id)}</div><span class="ch-id">${esc(ch.id)}</span></div>
+      <div class="ch-stats">
+        <div><div class="ch-stat-label">余额</div><div class="ch-stat-val" style="color:#16a34a">${bal}</div></div>
+        <div><div class="ch-stat-label">模型数</div><div class="ch-stat-val" style="color:#7c3aed">${ch.models_count||0}</div></div>
+      </div>
+      <div class="ch-url">${esc(ch.base_url||'')}</div>
+      ${models.length?`<div class="ch-models-tags">${models.map(m=>`<span class="ch-tag">${esc(m)}</span>`).join('')}</div>`:''}
+      ${!isDef?`<div class="ch-actions"><button class="ch-btn" onclick="event.stopPropagation();editChannel('${esc(ch.id)}')">编辑</button><button class="ch-btn ch-btn-del" onclick="event.stopPropagation();deleteChannel('${esc(ch.id)}')">删除</button></div>`:''}
+    </div>`;
   }).join('');
 }
 
-function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+/* ─── Modal ─── */
+function openAddModal(){
+  document.getElementById('modal-title').textContent='添加渠道';
+  document.getElementById('m-edit-idx').value='-1';
+  document.getElementById('m-id').value='';document.getElementById('m-id').disabled=false;
+  document.getElementById('m-name').value='';document.getElementById('m-url').value='';
+  document.getElementById('m-key').value='';document.getElementById('m-timeout').value='120';
+  _modalModels=[];renderModalTags();
+  document.getElementById('ch-modal').classList.add('open');
+}
+function editChannel(id){
+  const idx=_extraCh.findIndex(c=>c.id===id);if(idx<0)return;const ch=_extraCh[idx];
+  document.getElementById('modal-title').textContent='编辑渠道';
+  document.getElementById('m-edit-idx').value=String(idx);
+  document.getElementById('m-id').value=ch.id||'';document.getElementById('m-id').disabled=true;
+  document.getElementById('m-name').value=ch.name||'';document.getElementById('m-url').value=ch.base_url||'';
+  document.getElementById('m-key').value=ch.api_key||'';document.getElementById('m-timeout').value=String(ch.timeout||120);
+  _modalModels=[...(ch.models||[])];renderModalTags();
+  document.getElementById('ch-modal').classList.add('open');
+}
+function closeModal(){document.getElementById('ch-modal').classList.remove('open')}
+function renderModalTags(){document.getElementById('m-models-tags').innerHTML=_modalModels.map((m,i)=>`<span class="cfg-tag">${esc(m)}<span class="cfg-tag-x" onclick="removeModalModel(${i})">×</span></span>`).join('')}
+function removeModalModel(i){_modalModels.splice(i,1);renderModalTags()}
+document.addEventListener('DOMContentLoaded',()=>{
+  const inp=document.getElementById('m-models-input');
+  if(inp)inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();const v=inp.value.trim();if(v&&!_modalModels.includes(v)){_modalModels.push(v);renderModalTags()}inp.value=''}});
+});
+async function saveChannel(){
+  const id=document.getElementById('m-id').value.trim(),name=document.getElementById('m-name').value.trim(),
+    url=document.getElementById('m-url').value.trim(),key=document.getElementById('m-key').value.trim(),
+    timeout=parseInt(document.getElementById('m-timeout').value)||120;
+  if(!id||!url||!key){showToast('ID、URL、Key 必填','error');return}
+  const idx=parseInt(document.getElementById('m-edit-idx').value);
+  const obj={id,name:name||id,base_url:url,api_key:key,timeout,models:_modalModels,enabled:true};
+  if(idx>=0){_extraCh[idx]=obj}else{if(_extraCh.some(c=>c.id===id)){showToast('ID已存在','error');return}_extraCh.push(obj)}
+  closeModal();await saveDefaultConfig();await loadDefaultConfig();
+}
+async function deleteChannel(id){if(!confirm('确定删除渠道 "'+id+'" ？'))return;_extraCh=_extraCh.filter(c=>c.id!==id);await saveDefaultConfig();await loadDefaultConfig()}
+
+/* ─── Models (Card Layout) ─── */
+async function loadModels(){
+  try{
+    const d=await api('/models');_allModels=d.items||[];
+    document.getElementById('model-count').textContent='共 '+_allModels.length+' 个模型';
+    filterModels();
+  }catch(e){document.getElementById('model-grid').innerHTML='<div class="empty-state">加载失败: '+esc(e.message)+'</div>'}
+}
+function filterModels(){
+  const q=(document.getElementById('f-model-search')?.value||'').trim().toLowerCase();
+  let items=_allModels;
+  if(_selCh)items=items.filter(m=>m.owned_by===_selCh);
+  if(q)items=items.filter(m=>m.id.toLowerCase().includes(q));
+  document.getElementById('model-count').textContent='共 '+items.length+' 个模型';
+  renderModelCards(items);
+}
+function renderModelCards(items){
+  const g=document.getElementById('model-grid');
+  if(!items.length){g.innerHTML='<div class="empty-state" style="grid-column:1/-1">暂无模型</div>';return}
+  g.innerHTML=items.map(m=>{
+    const time=m.created?new Date(m.created*1000).toLocaleDateString('zh-CN'):'—';
+    return `<div class="model-card"><div class="model-card-name">${esc(m.id)}</div><div class="model-card-meta"><span class="model-card-owner">${esc(m.owned_by||'unknown')}</span><span class="model-card-time">${time}</span></div></div>`;
+  }).join('');
+}
 </script>
 </body>
 </html>

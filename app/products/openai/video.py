@@ -598,8 +598,8 @@ async def _download_video_bytes(token: str, url: str) -> tuple[bytes, str]:
     return raw, (content_type or "video/mp4")
 
 
-def _save_video_bytes(raw: bytes, file_id: str) -> Path:
-    return save_local_video(raw, file_id)
+def _save_video_bytes(raw: bytes, file_id: str, prompt: str | None = None, model: str | None = None) -> Path:
+    return save_local_video(raw, file_id, prompt=prompt, model=model)
 
 
 def _local_video_url(file_id: str) -> str:
@@ -626,7 +626,7 @@ def _render_video_html(url: str) -> str:
     return f'<video controls src="{safe_url}"></video>'
 
 
-async def _resolve_video_output(*, token: str, url: str, file_id: str) -> str:
+async def _resolve_video_output(*, token: str, url: str, file_id: str, prompt: str | None = None, model: str | None = None) -> str:
     fmt = _normalize_video_format(
         get_config().get_str("features.video_format", "grok_url")
     )
@@ -637,7 +637,7 @@ async def _resolve_video_output(*, token: str, url: str, file_id: str) -> str:
 
     try:
         raw, _mime = await _download_video_bytes(token, url)
-        await asyncio.to_thread(_save_video_bytes, raw, file_id)
+        await asyncio.to_thread(_save_video_bytes, raw, file_id, prompt, model)
     except Exception as exc:
         logger.debug("video download fallback_to=upstream_url error={}", exc)
         return url if fmt == "local_url" else _render_video_html(url)
@@ -971,7 +971,7 @@ async def _run_video_job(
         if artifact is None:
             raise UpstreamError("Video generation exhausted all retry attempts")
 
-        path = _save_video_bytes(raw, job.id)
+        path = _save_video_bytes(raw, job.id, prompt=prompt, model=job.model)
         async with _VIDEO_JOBS_LOCK:
             job.status = "completed"
             job.progress = 100

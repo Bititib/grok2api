@@ -90,12 +90,37 @@ def _list_files(media_type: str, page: int, page_size: int) -> dict[str, Any]:
     start = (page - 1) * page_size
     chunk = files[start : start + page_size]
     items = []
+    
+    from contextlib import closing
+    from app.platform.storage.media_cache import local_media_cache
+    
+    names = [f.name for f in chunk]
+    meta_map = {}
+    if names:
+        try:
+            with closing(local_media_cache._connect()) as conn:
+                placeholders = ",".join("?" for _ in names)
+                rows = conn.execute(
+                    f"SELECT name, prompt, model FROM local_media_files WHERE media_type = ? AND name IN ({placeholders})",
+                    (media_type, *names)
+                ).fetchall()
+                for r in rows:
+                    meta_map[r["name"]] = {
+                        "prompt": r["prompt"],
+                        "model": r["model"]
+                    }
+        except Exception:
+            pass
+            
     for f in chunk:
         st = f.stat()
+        meta = meta_map.get(f.name, {})
         items.append({
             "name": f.name,
             "size_bytes": st.st_size,
             "modified_at": st.st_mtime,
+            "prompt": meta.get("prompt"),
+            "model": meta.get("model"),
         })
     return {"total": total, "page": page, "page_size": page_size, "items": items}
 
