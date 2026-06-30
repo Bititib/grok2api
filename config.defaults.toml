@@ -238,7 +238,7 @@ per_request = 0.14
 # Omni Video models pricing (2x upstream price)
 [billing.pricing.omni-flash]
 is_video = true
-video_cost_per_second_720p = 0.10
+video_cost_per_second_720p = 0.12
 video_cost_per_second_1080p = 0.20
 
 [billing.pricing.omni-flash-vref]
