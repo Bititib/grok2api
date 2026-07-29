@@ -1,6 +1,6 @@
-# `grokai.zhubo.asia` 全渠道 API 接口文档 (完整模型与渠道版)
+# `grokai.zhubo.asia` API 接口文档
 
-本文档说明目前系统中配置的**全部三个中转渠道（PIDOI 渠道、DSZ 渠道、Omni 渠道）**的模型清单与 API 调用方式。视频生成采用**异步任务模式**：提交任务后获得 `task_id`，再轮询获取最终生成结果。
+本文档说明平台提供的全套模型与 API 调用方式。视频生成采用**异步任务模式**：提交任务后获得 `task_id`，再轮询获取最终生成结果。
 
 ---
 
@@ -14,42 +14,37 @@
 
 ---
 
-## 2. 三大渠道与完整模型清单
+## 2. 模型清单与计费说明
 
-### 2.1 PIDOI 视频渠道 (`https://pidoi.com`)
+### 2.1 视频生成模型
 
-| 模型名称 | 渲染画质 | 支持比例 | 允许时长 | 多参考图/视频支持 | 扣费单价 | 说明 |
+| 模型名称 | 渲染画质 | 支持比例 | 允许时长 | 参考媒体支持 | 计费单价 | 模型说明 |
 |---|---|---|---|---|---|---|
-| **`veo31-fast`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` 秒 | ✅ 最多 2 张 (首尾帧) | **$0.60 美元 / 次** | Veo31 高清视频生成 |
-| **`gemini-omni-flash`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` / `10` 秒 | ✅ 最多 5 图 / 1 视频 | **$0.85 美元 / 次** | 强多模态风格与镜头追踪 |
-| **`sora2`** | `720p` | `16:9` / `9:16` | `4` / `8` / `12` 秒 | ✅ 最多 1 张图 | **按次扣费** | Sora2 基础视频生成 |
+| **`grok-imagine-1.0-video`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多张参考图 | **$0.40 美元 / 次** | Grok 1.0 经典视频生成 |
+| **`grok-imagine-video-1.5-fast`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多张参考图 | **$0.40 美元 / 次** | Grok 1.5 高速视频生成 |
+| **`grok-imagine-video-1.5-preview`** | `720p` | `16:9` / `9:16` | `6` 秒 | ⚠️ 支持 1 张参考图 | **$0.50 美元 / 次** | Grok 1.5 预览版图生视频 |
+| **`veo31-fast`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` 秒 | ✅ 最多 2 张 (首尾帧) | **$0.60 美元 / 次** | Veo 31 高清视频生成 |
+| **`gemini-omni-flash`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` / `10` 秒 | ✅ 最多 5 图 / 1 视频 | **$0.85 美元 / 次** | Omni 闪电版多模态视频 |
+| **`sora2`** | `720p` | `16:9` / `9:16` | `4` / `8` / `12` 秒 | ✅ 最多 1 张参考图 | **按次扣费** | Sora 2 基础视频生成 |
+| **`omni-flash`** | `720p` / `1080p` | `16:9` / `9:16` | 自定义 | ✅ 支持多张参考图 | **$0.12 美元 / 秒 (720p)** | Omni 动态计费视频 |
+| **`omni-flash-vref`** | `720p` / `1080p` | `16:9` / `9:16` | 自定义 | ✅ 支持视频参考控制 | **$0.22 美元 / 秒 (720p)** | Omni 视频参考控制生成 |
 
 ---
 
-### 2.2 DSZ Grok 视频渠道 (`https://new.dszyym.com`)
+### 2.2 工具与功能模型
 
-| 模型名称 | 渲染画质 | 支持比例 | 允许时长 | 多参考图支持 | 扣费单价 | 说明 |
-|---|---|---|---|---|---|---|
-| **`grok-imagine-1.0-video`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多图 | **$0.40 美元 / 次** | Grok 经典版中转模型 |
-| **`grok-imagine-video-1.5-fast`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多图 | **$0.40 美元 / 次** | Grok 快速版中转模型 |
-| **`grok-imagine-video-1.5-preview`** | `720p` | `16:9` / `9:16` | `6` 秒 | ⚠️ 仅限 1 张图 | **$0.50 美元 / 次** | 1.5 预览版图生视频专有模型 |
-
----
-
-### 2.3 Omni 专有工具渠道 (`https://llm.zerofall.top`)
-
-| 模型名称 | 应用类型 | 计费模式 | 扣费单价 | 说明 |
-|---|---|---|---|---|
-| **`omni-flash`** | 视频生成 | 按秒计费 | **$0.12 美元 / 秒 (720p)** | Omni 闪电版视频 |
-| **`omni-flash-vref`** | 视频参考生成 | 按秒计费 | **$0.22 美元 / 秒 (720p)** | 带视频参考控制的生成 |
-| **`omni-watermark-remover`** | 工具 / 去水印 | 按次计费 | **$0.10 美元 / 次** | 智能去水印工具 API |
-| **`omni-moderation-latest`** | 内容审核 | 按次计费 | **$0.02 美元 / 次** | 文本/图像内容安全审核 |
+| 模型名称 | 应用类型 | 计费单价 | 功能说明 |
+|---|---|---|---|
+| **`omni-watermark-remover`** | 去水印 | **$0.10 美元 / 次** | AI 智能视频/图片去水印 |
+| **`omni-moderation-latest`** | 内容审核 | **$0.02 美元 / 次** | 文本/图像多模态安全合规审核 |
 
 ---
 
 ## 3. 接口调用指南
 
 ### 3.1 统一创建视频任务接口：`POST /v1/video/create`
+
+推荐客户端统一使用该 JSON 接口进行任务提交。
 
 * **请求 Headers**：
   ```http
@@ -61,13 +56,13 @@
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|
-| `model` | string | 是 | - | 模型名称（如 `grok-imagine-1.0-video`、`veo31-fast`、`omni-flash`） |
+| `model` | string | 是 | - | 模型名称（如 `grok-imagine-1.0-video`、`veo31-fast`） |
 | `prompt` | string | 是 | - | 视频生成提示词 |
 | `aspect_ratio` | string | 否 | `"16:9"` | 视频比例：`"16:9"` 或 `"9:16"` |
 | `seconds` / `duration` | integer / string | 否 | `6` | 视频时长（秒） |
 | `images` | array[string] | 否 | `[]` | 参考图片 HTTP/HTTPS URL 列表 |
 
-#### cURL 示例 (生成视频)
+#### cURL 示例 1：文生视频 (Text to Video)
 ```bash
 curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
   -H "Authorization: Bearer YOUR_API_KEY" \
@@ -80,11 +75,28 @@ curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
   }'
 ```
 
+#### cURL 示例 2：多图图生视频 (Image to Video)
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "veo31-fast",
+    "prompt": "Create a smooth cinematic transition between these two frames",
+    "aspect_ratio": "16:9",
+    "duration": 4,
+    "images": [
+      "https://example.com/start_frame.jpg",
+      "https://example.com/end_frame.jpg"
+    ]
+  }'
+```
+
 * **任务提交成功响应 (HTTP 200)**：
 ```json
 {
-  "id": "dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
-  "task_id": "dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "id": "task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "task_id": "task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
   "object": "video",
   "model": "grok-imagine-1.0-video",
   "status": "queued",
@@ -101,20 +113,31 @@ curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
 
 * **请求方式**：
 ```bash
-curl -X GET "https://grokai.zhubo.asia/v1/video/query?id=dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH" \
+curl -X GET "https://grokai.zhubo.asia/v1/video/query?id=task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH" \
   -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+* **渲染中响应 (queued / in_progress)**：
+```json
+{
+  "id": "task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "status": "in_progress",
+  "progress": 66,
+  "model": "grok-imagine-1.0-video"
+}
 ```
 
 * **渲染完成响应 (completed)**：
 ```json
 {
-  "id": "dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "id": "task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
   "status": "completed",
   "progress": 100,
   "model": "grok-imagine-1.0-video",
   "video_url": "https://grokai.zhubo.asia/v1/files/video?id=e38b5247-e327-4024-8ee5-3462d5375b48"
 }
 ```
+*客户端直接使用响应中的 `video_url` 播放或下载 MP4 视频。*
 
 ---
 
@@ -140,7 +163,7 @@ import time
 import requests
 
 BASE_URL = "https://grokai.zhubo.asia"
-API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxx"
+API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxx"  # 替换为您的密钥
 
 headers = {
     "Authorization": f"Bearer {API_KEY}",
@@ -148,6 +171,7 @@ headers = {
 }
 
 def generate_video(model_name: str, prompt: str, aspect_ratio: str = "16:9", images: list = None):
+    # 1. 提交视频生成任务
     payload = {
         "model": model_name,
         "prompt": prompt,
@@ -165,6 +189,7 @@ def generate_video(model_name: str, prompt: str, aspect_ratio: str = "16:9", ima
     task_id = result.get("task_id") or result.get("id")
     print(f"任务提交成功！Task ID: {task_id}")
 
+    # 2. 轮询视频生成进度
     start_time = time.time()
     while True:
         time.sleep(5)
@@ -191,6 +216,7 @@ def generate_video(model_name: str, prompt: str, aspect_ratio: str = "16:9", ima
             print(f"\n❌ 视频生成失败: {error_msg}")
             raise RuntimeError(f"Video generation failed: {error_msg}")
 
+# 使用示例：
 if __name__ == "__main__":
     generate_video(
         model_name="grok-imagine-1.0-video",
