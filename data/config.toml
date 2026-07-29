@@ -1,0 +1,74 @@
+[app]
+app_key = "hhx123456"
+app_url = "https://grokai.zhubo.asia"
+webui_enabled = false
+
+[features]
+video_format = "local_url"
+image_format = "local_url"
+
+[billing]
+enabled = true
+
+[proxy.egress]
+proxy_url = "socks5://warp:1080"
+mode = "single_proxy"
+
+[proxy.clearance]
+mode = "none"
+browser = "chrome146"
+cf_cookies = ""
+flaresolverr_url = "http://flaresolverr:8191"
+timeout_sec = 60
+
+[providers.newapi]
+enabled = true
+base_url = "https://pidoi.com"
+api_key = "sk-jONZxfxNTSIMij2f7CgUIIdZjQkCmadK8nG51dHa3WcZMvgG"
+timeout = 120
+merge_models = true
+default_input_price = 1.0
+default_output_price = 3.0
+default_image_price = 0.04
+
+[[providers.newapi.channels]]
+id = "zerof"
+name = "Omni 渠道"
+base_url = "https://llm.zerofall.top"
+api_key = "sk-bmtNXFu0maoLmJD7KgISE7wGQhyCsB63ePL6aPRPmwf2RL3V"
+timeout = 120
+models = [
+    "omni-flash",
+    "omni-flash-vref",
+    "omni-watermark-remover",
+    "omni-moderation-latest",
+]
+enabled = true
+
+[[providers.newapi.channels]]
+id = "dszyym_grok"
+name = "DSZ Grok视频渠道"
+base_url = "https://new.dszyym.com"
+api_key = "sk-ZX7XMT6oABvHIGwFvKm6BF5BdWMsPRo2ZpXO034PtOhHJR2j"
+timeout = 120
+models = [
+    "grok-imagine-1.0-video",
+    "grok-imagine-video-1.5-fast"
+]
+enabled = true
+
+[billing.pricing.veo31-fast]
+per_request = 0.60
+
+[billing.pricing.gemini-omni-flash]
+per_request = 0.85
+
+[billing.pricing.grok-imagine-1.0-video]
+per_request = 0.40
+
+[billing.pricing.grok-imagine-video-1.5-fast]
+per_request = 0.40
+
+[billing.pricing.grok-imagine-video-1.5-preview]
+per_request = 0.50
+
