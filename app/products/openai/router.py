@@ -225,6 +225,89 @@ async def _upload_to_data_uri(upload: UploadFile, *, param: str) -> str:
     return f"data:{mime};base64,{blob_b64}"
 
 
+async def _extract_images_from_payload(payload: Any) -> list[str]:
+    """Helper to extract flat list of image URLs/Base64 from various possible fields."""
+    urls = []
+    if not payload:
+        return urls
+
+    async def process_item(item: Any):
+        if isinstance(item, str):
+            if item.strip():
+                urls.append(item.strip())
+        elif isinstance(item, dict):
+            for key in ("image_url", "url", "image"):
+                val = item.get(key)
+                if isinstance(val, str) and val.strip():
+                    urls.append(val.strip())
+                    break
+        elif hasattr(item, "read") and hasattr(item, "filename"):  # UploadFile-like
+            try:
+                data_uri = await _upload_to_data_uri(item, param="input_reference")
+                if data_uri:
+                    urls.append(data_uri)
+            except Exception:
+                pass
+
+    if isinstance(payload, dict):
+        for field in ("images", "input_reference", "input_references", "reference_images"):
+            val = payload.get(field)
+            if not val:
+                continue
+            if isinstance(val, list):
+                for sub_item in val:
+                    await process_item(sub_item)
+            else:
+                await process_item(val)
+    elif isinstance(payload, list):
+        for item in payload:
+            await process_item(item)
+    else:
+        await process_item(payload)
+
+    return urls
+
+
+def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> None:
+    model = body.get("model", "")
+
+    # Standardize size / aspect_ratio
+    raw_size = str(body.get("size", "")).strip()
+    if raw_size == "720x1280":
+        if "aspect_ratio" not in body:
+            body["aspect_ratio"] = "9:16"
+        body.pop("size", None)
+    elif raw_size == "1280x720":
+        if "aspect_ratio" not in body:
+            body["aspect_ratio"] = "16:9"
+        body.pop("size", None)
+
+    # Standardize duration
+    sec = body.get("seconds") or body.get("duration")
+    if sec is not None:
+        try:
+            sec_int = int(sec)
+            body["duration"] = sec_int
+            body["seconds"] = str(sec_int)
+        except (ValueError, TypeError):
+            pass
+
+    if model == "grok-imagine-video-1.5-preview":
+        if urls:
+            body["images"] = [urls[0]]
+        else:
+            body["images"] = []
+        body.pop("input_reference", None)
+        body.pop("input_references", None)
+        body.pop("reference_images", None)
+    else:
+        body["images"] = urls
+        if urls:
+            body["input_reference"] = urls[0]
+            body["input_references"] = [{"image_url": u} for u in urls]
+            body["reference_images"] = urls
+
+
 @router.post(
     "/chat/completions", tags=[_TAG_CHAT], dependencies=[Depends(verify_api_key)]
 )
@@ -658,25 +741,52 @@ async def image_generations(request: Request, req: ImageGenerationRequest):
 
 
 @router.post("/videos", tags=[_TAG_VIDEOS], dependencies=[Depends(verify_api_key)])
-async def videos_create(
-    request: Request,
-    model: Annotated[str, Form(...)],
-    prompt: Annotated[str, Form(...)],
-    seconds: Annotated[int | str, Form()] = 6,
-    size: Annotated[str, Form()] = "720x1280",
-    resolution_name: Annotated[str | None, Form()] = None,
-    preset: Annotated[
-        Literal["fun", "normal", "spicy", "custom"] | None, Form()
-    ] = None,
-    input_reference: Annotated[
-        list[UploadFile] | None, File(alias="input_reference[]")
-    ] = None,
-    aspect_ratio: Annotated[str | None, Form()] = None,
-    resolution: Annotated[str | None, Form()] = None,
-):
+async def videos_create(request: Request):
     import asyncio, time as _time
 
     billing_key = getattr(request.state, "billing_key", None)
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        body = await request.json()
+        model = body.get("model")
+        prompt = body.get("prompt")
+        seconds = body.get("seconds") or body.get("duration") or body.get("video_length") or 6
+        size = body.get("size") or body.get("aspect_ratio") or "720x1280"
+        resolution_name = body.get("resolution_name") or body.get("resolution")
+        preset = body.get("preset")
+        aspect_ratio = body.get("aspect_ratio")
+        resolution = body.get("resolution")
+        urls = await _extract_images_from_payload(body)
+    else:
+        form = await request.form()
+        payload = {}
+        for k in form.keys():
+            norm_k = k.rstrip("[]")
+            val_list = form.getlist(k)
+            if norm_k in payload:
+                if isinstance(payload[norm_k], list):
+                    payload[norm_k].extend(val_list)
+                else:
+                    payload[norm_k] = [payload[norm_k]] + val_list
+            else:
+                if len(val_list) == 1:
+                    payload[norm_k] = val_list[0]
+                else:
+                    payload[norm_k] = val_list
+
+        model = payload.get("model")
+        prompt = payload.get("prompt")
+        seconds = payload.get("seconds") or 6
+        size = payload.get("size") or "720x1280"
+        resolution_name = payload.get("resolution_name")
+        preset = payload.get("preset")
+        aspect_ratio = payload.get("aspect_ratio")
+        resolution = payload.get("resolution")
+        urls = await _extract_images_from_payload(payload)
+
+    if not model or not prompt:
+        raise ValidationError("model and prompt are required fields", param="model")
 
     # ── NewAPI Fallback: third-party video models ────────────────────
     from app.control.provider.newapi import (
@@ -688,30 +798,26 @@ async def videos_create(
         body: dict[str, Any] = {
             "model": model,
             "prompt": prompt,
-            "seconds": str(seconds),
         }
+        try:
+            sec_int = int(seconds)
+            body["seconds"] = str(sec_int)
+            body["duration"] = sec_int
+        except (ValueError, TypeError):
+            body["seconds"] = str(seconds)
         if aspect_ratio:
             body["aspect_ratio"] = aspect_ratio
         elif size and ":" in str(size):
-            # size could be "16:9" style aspect ratio
             body["aspect_ratio"] = str(size)
         elif size:
             body["size"] = str(size)
         if resolution_name:
-            body["size"] = resolution_name.upper()  # "720p" → "720P"
+            body["size"] = resolution_name.upper()
         elif resolution:
             body["size"] = resolution.upper()
 
-        # Collect reference images
-        ref_urls: list[str] = []
-        if input_reference:
-            for f in input_reference[:7]:
-                data_uri = await _upload_to_data_uri(f, param="input_reference")
-                ref_urls.append(data_uri)
-        if ref_urls:
-            body["images"] = ref_urls
-        else:
-            body["images"] = []
+        # Standardize references for NewAPI
+        _standardize_newapi_video_body(body, urls)
 
         _start = _time.monotonic()
         try:
@@ -754,11 +860,8 @@ async def videos_create(
     from .video import create_video
 
     references_payload = None
-    if input_reference:
-        references_payload = [
-            {"image_url": await _upload_to_data_uri(f, param="input_reference")}
-            for f in input_reference[:7]
-        ]
+    if urls:
+        references_payload = [{"image_url": u} for u in urls[:7]]
 
     # ── Pre-hold: freeze estimated cost before submission ────────────
     held_amount = 0.0
@@ -1175,6 +1278,10 @@ async def video_create_endpoint(request: Request):
     _start = _time.monotonic()
     body = await request.json()
     model = body.get("model", "unknown")
+
+    # Standardize image references
+    urls = await _extract_images_from_payload(body)
+    _standardize_newapi_video_body(body, urls)
 
     try:
         result = await newapi_video_create(body=body)

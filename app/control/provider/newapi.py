@@ -665,66 +665,98 @@ THIRD_PARTY_VIDEO_MODELS: frozenset[str] = frozenset({
     "grok-imagine-video-1.5-preview",
     "grok-imagine-1.0-video",
     "grok-imagine-video-1.5-fast",
+    "sora2",
+    "gemini-omni-flash",
+    "veo31-fast",
 })
 
 
 def is_third_party_video_model(model: str) -> bool:
-    """Check if a model should use the /v1/video/create interface."""
+    """Check if a model should use third-party video creation interfaces."""
     return model in THIRD_PARTY_VIDEO_MODELS
 
 
 async def video_create(*, body: dict[str, Any]) -> dict[str, Any]:
-    """Forward a video creation request via /v1/video/create and return encoded ID."""
+    """Forward a video creation request via /v1/video/create or /v1/videos and return encoded ID."""
     model = body.get("model", "unknown")
     chan = _select_channel(model)
-    url = f"{chan.base_url}/v1/video/create"
+    urls = [
+        f"{chan.base_url}/v1/video/create",
+        f"{chan.base_url}/v1/videos",
+    ]
 
-    logger.info(
-        "newapi video_create proxy: model={} url={} channel={}",
-        model, url, chan.id,
-    )
-
+    last_exc = None
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=chan.timeout)
     ) as session:
-        async with session.post(url, json=body, headers=_headers(chan.api_key)) as resp:
-            resp.raise_for_status()
-            res = await resp.json()
-            # Store prompt/model in memory
-            task_id = res.get("id") or res.get("task_id")
-            if not task_id and isinstance(res.get("data"), dict):
-                task_id = res.get("data").get("id") or res.get("data").get("task_id")
-            if task_id:
-                prompt = body.get("prompt")
-                if not prompt and "messages" in body:
-                    msgs = body.get("messages")
-                    if msgs and isinstance(msgs, list):
-                        prompt = msgs[-1].get("content")
-                _VIDEO_TASK_METADATA[str(task_id)] = (prompt, model)
-            return _encode_response_ids(res, chan.id)
+        for idx, url in enumerate(urls):
+            logger.info(
+                "newapi video_create proxy: model={} url={} channel={}",
+                model, url, chan.id,
+            )
+            try:
+                async with session.post(url, json=body, headers=_headers(chan.api_key)) as resp:
+                    if resp.status == 404 and idx < len(urls) - 1:
+                        logger.warning("video_create endpoint {} returned 404, trying fallback URL", url)
+                        continue
+                    resp.raise_for_status()
+                    res = await resp.json()
+                    task_id = res.get("id") or res.get("task_id")
+                    if not task_id and isinstance(res.get("data"), dict):
+                        task_id = res.get("data").get("id") or res.get("data").get("task_id")
+                    if task_id:
+                        prompt = body.get("prompt")
+                        if not prompt and "messages" in body:
+                            msgs = body.get("messages")
+                            if msgs and isinstance(msgs, list):
+                                prompt = msgs[-1].get("content")
+                        _VIDEO_TASK_METADATA[str(task_id)] = (prompt, model)
+                    return _encode_response_ids(res, chan.id)
+            except Exception as exc:
+                last_exc = exc
+                if isinstance(exc, aiohttp.ClientResponseError) and exc.status == 404 and idx < len(urls) - 1:
+                    logger.warning("video_create endpoint {} returned 404, trying fallback URL", url)
+                    continue
+                raise exc
+
+        if last_exc:
+            raise last_exc
 
 
 async def video_query(video_id: str) -> dict[str, Any]:
-    """Query video task status via GET /v1/video/query?id={video_id} using encoded ID."""
+    """Query video task status via GET /v1/video/query?id={video_id} or GET /v1/videos/{video_id}."""
     channel_id, original_id = _decode_id(video_id)
     chan = _select_channel_by_id(channel_id)
-    url = f"{chan.base_url}/v1/video/query"
-
-    logger.info(
-        "newapi video_query proxy: video_id={} channel={} original_id={}",
-        video_id, chan.id, original_id,
-    )
-
     prompt, model = _VIDEO_TASK_METADATA.get(str(original_id), (None, None))
 
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=min(chan.timeout, 30))
     ) as session:
-        async with session.get(
-            url,
-            params={"id": original_id},
-            headers=_headers(chan.api_key),
-        ) as resp:
+        # 1. Try /v1/video/query?id=...
+        url_query = f"{chan.base_url}/v1/video/query"
+        logger.info(
+            "newapi video_query proxy: video_id={} channel={} original_id={}",
+            video_id, chan.id, original_id,
+        )
+        try:
+            async with session.get(
+                url_query,
+                params={"id": original_id},
+                headers=_headers(chan.api_key),
+            ) as resp:
+                if resp.status != 404:
+                    resp.raise_for_status()
+                    res = await resp.json()
+                    res = await _cache_video_response_if_needed(res, prompt=prompt, model=model)
+                    return _encode_response_ids(res, channel_id)
+        except aiohttp.ClientResponseError as exc:
+            if exc.status != 404:
+                raise exc
+
+        # 2. Fallback to /v1/videos/{original_id} (PIDOI style)
+        url_path = f"{chan.base_url}/v1/videos/{original_id}"
+        logger.info("newapi video_query proxy fallback: url={}", url_path)
+        async with session.get(url_path, headers=_headers(chan.api_key)) as resp:
             resp.raise_for_status()
             res = await resp.json()
             res = await _cache_video_response_if_needed(res, prompt=prompt, model=model)

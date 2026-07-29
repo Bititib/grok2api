@@ -51,6 +51,9 @@ _DEFAULT_PRICING: dict[str, ModelPricing] = {
     "grok-imagine-1.0-video":  ModelPricing(is_video=True),
     "omni-flash":              ModelPricing(is_video=True),
     "omni-flash-vref":         ModelPricing(is_video=True),
+    "sora2":                   ModelPricing(is_video=True),
+    "gemini-omni-flash":       ModelPricing(is_video=True),
+    "veo31-fast":              ModelPricing(is_video=True),
     "omni-watermark-remover":  ModelPricing(per_request=0.10),
 }
 
@@ -95,22 +98,23 @@ def get_pricing(model: str) -> ModelPricing:
     """Get pricing for a model, checking config first then defaults."""
     cfg = get_config()
 
-    # Try config-based pricing
+    # Try config-based pricing (per_request takes highest priority)
+    per_req = cfg.get_float(f"billing.pricing.{model}.per_request", -1.0)
+    if per_req >= 0:
+        return ModelPricing(per_request=per_req)
+
     is_vid = cfg.get_bool(f"billing.pricing.{model}.is_video", False)
     if is_vid:
         return ModelPricing(is_video=True)
 
     input_price = cfg.get_float(f"billing.pricing.{model}.input", -1)
     output_price = cfg.get_float(f"billing.pricing.{model}.output", -1)
-    per_req = cfg.get_float(f"billing.pricing.{model}.per_request", -1)
 
     if input_price >= 0 or output_price >= 0:
         return ModelPricing(
             input=max(0, input_price),
             output=max(0, output_price),
         )
-    if per_req >= 0:
-        return ModelPricing(per_request=per_req)
 
     # Fallback to default table
     if model in _DEFAULT_PRICING:
