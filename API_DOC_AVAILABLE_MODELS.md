@@ -1,0 +1,210 @@
+# `grokai.zhubo.asia` 视频生成 API 接口文档 (可用模型汇总版)
+
+本文档说明目前系统中**完全可用且经过线上实测**的视频生成模型与 API 调用方式。视频生成采用**异步任务模式**：提交任务后获得 `task_id`，再轮询获取最终视频地址。
+
+---
+
+## 1. 基础信息
+
+| 项目 | 说明 |
+|---|---|
+| **Base URL** | `https://grokai.zhubo.asia` |
+| **鉴权方式** | `Authorization: Bearer YOUR_API_KEY`（HTTP 请求头中携带） |
+| **请求格式** | `application/json`（推荐）或 `multipart/form-data` |
+
+---
+
+## 2. 可用模型清单与计费
+
+| 模型名称 | 渲染画质 | 支持比例 | 允许时长 | 多参考图支持 | 固定扣费单价 | 说明 |
+|---|---|---|---|---|---|---|
+| **`grok-imagine-1.0-video`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多图 | **$0.40 美元 / 次** | Grok 经典版中转模型 |
+| **`grok-imagine-video-1.5-fast`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多图 | **$0.40 美元 / 次** | Grok 快速版中转模型 |
+| **`veo31-fast`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` 秒 | ✅ 最多 2 张 (首尾帧) | **$0.60 美元 / 次** | Veo31 高清视频生成 |
+| **`gemini-omni-flash`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` / `10` 秒 | ✅ 最多 5 图 / 1 视频 | **$0.85 美元 / 次** | 强多模态风格与镜头追踪 |
+
+---
+
+## 3. 接口列表
+
+### 3.1 统一创建视频任务接口：`POST /v1/video/create`
+
+推荐客户端统一使用该 JSON 接口进行任务提交。
+
+* **请求 Headers**：
+  ```http
+  Authorization: Bearer YOUR_API_KEY
+  Content-Type: application/json
+  ```
+
+* **请求参数 (JSON Body)**：
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| `model` | string | 是 | - | 模型名称（如 `grok-imagine-1.0-video`、`veo31-fast`） |
+| `prompt` | string | 是 | - | 视频生成提示词 |
+| `aspect_ratio` | string | 否 | `"16:9"` | 视频比例：`"16:9"` 或 `"9:16"` |
+| `seconds` / `duration` | integer / string | 否 | `6` | 视频时长（秒） |
+| `images` | array[string] | 否 | `[]` | 参考图片 HTTP/HTTPS URL 列表 |
+
+#### cURL 示例 1：文生视频 (Text to Video)
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "grok-imagine-1.0-video",
+    "prompt": "A beautiful butterfly landing on a colorful flower, cinematic 4k",
+    "aspect_ratio": "16:9",
+    "seconds": 6
+  }'
+```
+
+#### cURL 示例 2：多图图生视频 (Image to Video)
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "veo31-fast",
+    "prompt": "Create a smooth cinematic transition between these two frames",
+    "aspect_ratio": "16:9",
+    "duration": 4,
+    "images": [
+      "https://example.com/start_frame.jpg",
+      "https://example.com/end_frame.jpg"
+    ]
+  }'
+```
+
+* **任务提交成功响应 (HTTP 200)**：
+```json
+{
+  "id": "dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "task_id": "dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "object": "video",
+  "model": "grok-imagine-1.0-video",
+  "status": "queued",
+  "progress": 0,
+  "created_at": 1785311571
+}
+```
+
+---
+
+### 3.2 统一查询视频任务接口：`GET /v1/video/query`
+
+提交任务后，建议客户端每隔 **5 - 8 秒** 查询一次任务状态。
+
+* **请求方式**：
+```bash
+curl -X GET "https://grokai.zhubo.asia/v1/video/query?id=dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH" \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+* **渲染中响应 (queued / in_progress)**：
+```json
+{
+  "id": "dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "status": "in_progress",
+  "progress": 66,
+  "model": "grok-imagine-1.0-video"
+}
+```
+
+* **渲染完成响应 (completed)**：
+```json
+{
+  "id": "dszyym_grok:task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
+  "status": "completed",
+  "progress": 100,
+  "model": "grok-imagine-1.0-video",
+  "video_url": "https://grokai.zhubo.asia/v1/files/video?id=e38b5247-e327-4024-8ee5-3462d5375b48"
+}
+```
+*客户端直接使用响应中的 `video_url` 播放或下载 MP4 视频。*
+
+---
+
+### 3.3 OpenAI 兼容表单上传接口：`POST /v1/videos`
+
+如果需要直接上传本地图片文件进行图生视频，可以使用表单提交接口：
+
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/videos" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "model=grok-imagine-1.0-video" \
+  -F "prompt=Animate this uploaded photo" \
+  -F "seconds=6" \
+  -F "input_reference[]=@/path/to/local_image.jpg"
+```
+
+---
+
+## 4. Python 生产级对接代码示例
+
+```python
+import time
+import requests
+
+BASE_URL = "https://grokai.zhubo.asia"
+API_KEY = "sk-xxxxxxxxxxxxxxxxxxxxxxxx"  # 替换为您的密钥
+
+headers = {
+    "Authorization": f"Bearer {API_KEY}",
+    "Content-Type": "application/json",
+}
+
+def generate_video(model_name: str, prompt: str, aspect_ratio: str = "16:9", images: list = None):
+    # 1. 提交视频生成任务
+    payload = {
+        "model": model_name,
+        "prompt": prompt,
+        "aspect_ratio": aspect_ratio,
+        "seconds": 6,
+    }
+    if images:
+        payload["images"] = images
+
+    print(f"正在提交任务 (模型: {model_name})...")
+    response = requests.post(f"{BASE_URL}/v1/video/create", json=payload, headers=headers, timeout=30)
+    response.raise_for_status()
+
+    result = response.json()
+    task_id = result.get("task_id") or result.get("id")
+    print(f"任务提交成功！Task ID: {task_id}")
+
+    # 2. 轮询视频生成进度
+    start_time = time.time()
+    while True:
+        time.sleep(5)
+        query_resp = requests.get(
+            f"{BASE_URL}/v1/video/query",
+            params={"id": task_id},
+            headers={"Authorization": f"Bearer {API_KEY}"},
+            timeout=15,
+        )
+        query_resp.raise_for_status()
+        data = query_resp.json()
+        
+        status = data.get("status")
+        progress = data.get("progress", 0)
+        elapsed = int(time.time() - start_time)
+        print(f"[{elapsed}s] 状态: {status:<12} | 进度: {progress}%")
+        
+        if status == "completed":
+            video_url = data.get("video_url") or data.get("url")
+            print(f"\n🎉 视频生成完成！播放/下载链接:\n{video_url}")
+            return video_url
+        elif status in ("failed", "error"):
+            error_msg = data.get("error")
+            print(f"\n❌ 视频生成失败: {error_msg}")
+            raise RuntimeError(f"Video generation failed: {error_msg}")
+
+# 使用示例：
+if __name__ == "__main__":
+    generate_video(
+        model_name="grok-imagine-1.0-video",
+        prompt="A butterfly landing on a colorful flower, cinematic 4k"
+    )
+```
