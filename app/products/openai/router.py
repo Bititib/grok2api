@@ -3,7 +3,7 @@
 import base64
 import binascii
 import mimetypes
-from typing import Annotated, AsyncGenerator, AsyncIterable, Literal
+from typing import Annotated, Any, AsyncGenerator, AsyncIterable, Literal
 
 import orjson
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
