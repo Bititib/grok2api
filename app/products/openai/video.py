@@ -24,6 +24,7 @@ from app.platform.errors import (
     RateLimitError,
     UpstreamError,
     ValidationError,
+    sanitize_exception,
 )
 from app.platform.logging.logger import logger
 from app.platform.runtime.clock import now_s
@@ -489,10 +490,10 @@ def _exception_message(exc: BaseException) -> str:
             for child in exc.exceptions
             if not isinstance(child, asyncio.CancelledError)
         ]
-        return "; ".join(message for message in messages if message) or str(exc)
+        return "; ".join(message for message in messages if message) or sanitize_exception(exc)
     if isinstance(exc, AppError):
         return exc.message
-    return str(exc)
+    return sanitize_exception(exc)
 
 
 async def _collect_video_segment(

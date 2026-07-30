@@ -149,6 +149,7 @@ async def imagine_ws(websocket: WebSocket):
         except asyncio.CancelledError:
             pass
         except Exception as exc:
+            from app.platform.errors import sanitize_exception
             logger.error(
                 "webui imagine run failed: error_type={} error={}",
                 type(exc).__name__,
@@ -156,7 +157,7 @@ async def imagine_ws(websocket: WebSocket):
             )
             await _send({
                 "type": "error",
-                "message": str(exc),
+                "message": sanitize_exception(exc),
                 "code": "internal_error",
             })
         finally:

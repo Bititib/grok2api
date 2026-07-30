@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
 
 from app.control.account.state_machine import is_manageable
 from app.platform.auth.middleware import verify_api_key
-from app.platform.errors import AppError, ValidationError
+from app.platform.errors import AppError, ValidationError, sanitize_exception
 from app.platform.logging.logger import logger
 from app.platform.storage import image_files_dir, video_files_dir
 from app.control.model import registry as model_registry
@@ -182,7 +182,7 @@ async def _safe_sse(stream: AsyncIterable[str]) -> AsyncGenerator[str, None]:
         yield "data: [DONE]\n\n"
     except Exception as exc:
         payload = orjson.dumps(
-            {"error": {"message": str(exc), "type": "server_error"}}
+            {"error": {"message": sanitize_exception(exc), "type": "server_error"}}
         ).decode()
         yield f"event: error\ndata: {payload}\n\n"
         yield "data: [DONE]\n\n"
@@ -648,7 +648,7 @@ async def _safe_sse_responses(stream) -> AsyncGenerator[str, None]:
             err = exc.to_dict()["error"]
         else:
             err = {
-                "message": str(exc),
+                "message": sanitize_exception(exc),
                 "type": "server_error",
                 "code": None,
                 "param": None,
@@ -898,7 +898,7 @@ async def videos_create(request: Request):
                 "newapi video_create proxy failed: model={} error={}", model, exc,
             )
             return JSONResponse(
-                {"error": {"message": str(exc), "type": "server_error"}},
+                {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
                 status_code=502,
             )
 
@@ -1248,7 +1248,7 @@ async def video_generations_create(request: Request):
                 await svc.refund_hold(billing_key.key, held_amount)
         logger.exception("newapi video proxy failed: model={} error={}", model, exc)
         return JSONResponse(
-            {"error": {"message": str(exc), "type": "server_error"}},
+            {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
             status_code=502,
         )
 
@@ -1310,7 +1310,7 @@ async def video_generations_poll(task_id: str):
     except Exception as exc:
         logger.exception("newapi video poll failed: task_id={} error={}", task_id, exc)
         return JSONResponse(
-            {"error": {"message": str(exc), "type": "server_error"}},
+            {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
             status_code=502,
         )
 
@@ -1359,7 +1359,7 @@ async def video_create_endpoint(request: Request):
     except Exception as exc:
         logger.exception("newapi video_create failed: model={} error={}", model, exc)
         return JSONResponse(
-            {"error": {"message": str(exc), "type": "server_error"}},
+            {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
             status_code=502,
         )
 
@@ -1421,7 +1421,7 @@ async def video_query_endpoint(
     except Exception as exc:
         logger.exception("newapi video_query failed: id={} error={}", id, exc)
         return JSONResponse(
-            {"error": {"message": str(exc), "type": "server_error"}},
+            {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
             status_code=502,
         )
 

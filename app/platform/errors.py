@@ -86,8 +86,41 @@ class StreamIdleTimeout(AppError):
         )
 
 
+def sanitize_exception(exc: Exception) -> str:
+    """Sanitize exceptions to prevent leaking internal URLs, local paths, or other details to clients."""
+    import aiohttp
+    import asyncio
+    import re
+
+    # 1. Handle standard aiohttp response errors
+    if isinstance(exc, aiohttp.ClientResponseError):
+        return f"Upstream error: {exc.status} {exc.message or ''}".strip()
+
+    # 2. Handle connection/network errors
+    elif isinstance(exc, aiohttp.ClientConnectorError):
+        return "Failed to connect to upstream service"
+
+    # 3. Handle timeout errors
+    elif isinstance(exc, asyncio.TimeoutError):
+        return "Upstream request timeout"
+
+    # 4. Fallback: sanitize string representation of any other exception
+    msg = str(exc)
+
+    # Redact URLs
+    msg = re.sub(r'https?://[^\s\'"]+', '***', msg)
+    msg = re.sub(r"URL\('[^']+'\)", "URL('***')", msg)
+    msg = re.sub(r'URL\("[^"]+"\)', 'URL("***")', msg)
+
+    # Redact local file paths
+    msg = re.sub(r'(?:[a-zA-Z]:\\|[/\\])[^\s\'"]+[/\\][^\s\'"]+', '***', msg)
+
+    return msg
+
+
 __all__ = [
     "ErrorKind", "AppError",
     "ValidationError", "AuthError", "RateLimitError",
     "UpstreamError", "StreamIdleTimeout",
+    "sanitize_exception",
 ]

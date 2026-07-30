@@ -185,6 +185,7 @@ async def video_ws(websocket: WebSocket):
         except asyncio.CancelledError:
             await _send({"type": "status", "status": "stopped", "run_id": run_id})
         except Exception as exc:
+            from app.platform.errors import sanitize_exception
             logger.error(
                 "webui video run failed: run_id={} error_type={} error={}",
                 run_id,
@@ -193,7 +194,7 @@ async def video_ws(websocket: WebSocket):
             )
             await _send({
                 "type": "error",
-                "message": str(exc),
+                "message": sanitize_exception(exc),
                 "code": "internal_error",
                 "run_id": run_id,
             })
