@@ -148,6 +148,50 @@ curl -X POST "https://grokai.zhubo.asia/v1/videos" \
 
 ---
 
+### 3.4 Seedance 2.0 多模态与人脸参考接口：`POST /v1/videos`
+
+Seedance 2.0 模型（`sd2-c7`、`sd2-mini`、`seedance-720`）支持多张图片、视频与音频参考联动，提示词可通过 `@ImageN`、`@VideoN`、`@AudioN` 引用素材。
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| `model` | string | `sd2-c7`（1.5元/次）、`sd2-mini`（2.0元/次）、`seedance-720`（4.0元/次） |
+| `prompt` | string | 提示词，引用素材时插入 `@Image1`、`@Video1`、`@Audio1` 等占位符 |
+| `duration` | integer | 视频时长（秒），范围 `5`–`15`，默认 `8` |
+| `aspect_ratio` | string | 画面比例：`16:9`（默认）、`9:16`、`1:1`、`21:9`、`3:4`、`4:3` |
+| `image_refs` | array[string] | 图片参考 URL 列表，最多 **9** 张（支持真人面部或身体照片） |
+| `video_refs` | array[string] | 视频参考 URL 列表，最多 **3** 条（用于动作、镜头参考） |
+| `audio_refs` | array[string] | 音频参考 URL 列表，最多 **3** 条（用于配音、音色参考） |
+| `compliance_enabled` | boolean | 是否开启合规素材风格（默认 `false`） |
+| `compliance_mode` | string | 合规素材风格：`colored-pencil`（彩铅）、`watercolor`（水彩）、`fishnet`（渔网）、`grid`（眼部遮罩） |
+
+#### cURL 示例：Seedance 2.0 多模态人脸与音视频联动调用
+
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/videos" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "seedance-720",
+    "prompt": "@Image1 是张三，张三使用 @Audio1。@Image2 是小红，小红参考 @Video1 的动作。两人面向镜头分别说：欢迎来到门的世界。",
+    "duration": 15,
+    "aspect_ratio": "16:9",
+    "image_refs": [
+      "https://example.com/image1.png",
+      "https://example.com/image2.jpg"
+    ],
+    "audio_refs": [
+      "https://example.com/audio1.wav"
+    ],
+    "video_refs": [
+      "https://example.com/video1.mp4"
+    ],
+    "compliance_enabled": true,
+    "compliance_mode": "colored-pencil"
+  }'
+```
+
+---
+
 ## 4. Python 生产级代码示例
 
 ```python
