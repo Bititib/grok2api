@@ -92,6 +92,25 @@ async def list_models(request: Request):
         except Exception as exc:
             logger.debug("newapi model merge skipped: error={}", exc)
 
+    # Attach pricing info to each model in the list
+    from app.control.billing.pricing import get_pricing, video_cost
+
+    for m in models:
+        mid = m.get("id", "")
+        pricing = get_pricing(mid)
+        if pricing.per_request > 0:
+            m["price"] = f"¥{pricing.per_request:.2f} / 次"
+            m["per_request_price"] = pricing.per_request
+        elif pricing.is_video:
+            rate_720p = video_cost(1, resolution="720p", model=mid)
+            if rate_720p > 0:
+                m["price"] = f"¥{rate_720p:.2f} / 秒"
+                m["per_second_price"] = rate_720p
+            else:
+                m["price"] = "按秒计费"
+        elif pricing.input > 0 or pricing.output > 0:
+            m["price"] = f"¥{pricing.input:.2f}/1M (in) | ¥{pricing.output:.2f}/1M (out)"
+
     return JSONResponse({"object": "list", "data": models})
 
 
@@ -100,10 +119,29 @@ async def list_models(request: Request):
 )
 async def get_model_endpoint(model_id: str, request: Request):
     import time
+    from app.control.billing.pricing import get_pricing, video_cost
 
     spec = model_registry.get(model_id)
     pools = await _available_pools(request)
     if spec is None or not _model_available_for_pools(spec, pools):
+        # Fall back to NewAPI upstream check if enabled
+        from app.control.provider.newapi import is_newapi_enabled, list_models as newapi_list
+        from app.platform.config.snapshot import get_config as _cfg
+
+        if is_newapi_enabled() and _cfg().get_bool("providers.newapi.merge_models", True):
+            try:
+                upstream = await newapi_list()
+                matched = next((um for um in upstream if um.get("id") == model_id), None)
+                if matched:
+                    pricing = get_pricing(model_id)
+                    res = dict(matched)
+                    if pricing.per_request > 0:
+                        res["price"] = f"¥{pricing.per_request:.2f} / 次"
+                        res["per_request_price"] = pricing.per_request
+                    return JSONResponse(res)
+            except Exception:
+                pass
+
         return JSONResponse(
             {
                 "error": {
@@ -113,15 +151,19 @@ async def get_model_endpoint(model_id: str, request: Request):
             },
             status_code=404,
         )
-    return JSONResponse(
-        {
-            "id": spec.model_name,
-            "object": "model",
-            "created": int(time.time()),
-            "owned_by": "xai",
-            "name": spec.public_name,
-        }
-    )
+
+    res = {
+        "id": spec.model_name,
+        "object": "model",
+        "created": int(time.time()),
+        "owned_by": "xai",
+        "name": spec.public_name,
+    }
+    pricing = get_pricing(spec.model_name)
+    if pricing.per_request > 0:
+        res["price"] = f"¥{pricing.per_request:.2f} / 次"
+        res["per_request_price"] = pricing.per_request
+    return JSONResponse(res)
 
 
 # ---------------------------------------------------------------------------
