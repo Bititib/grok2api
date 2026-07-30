@@ -57,6 +57,22 @@ models = [
 ]
 enabled = true
 
+[[providers.newapi.channels]]
+id = "seedance"
+name = "Seedance 2.0 渠道"
+base_url = "https://llm.chre3.com"
+api_key = "YOUR_NEW_API_KEY"
+timeout = 180
+models = [
+    "sd2-c7",
+    "sd2-c8",
+    "sd2-mini",
+    "seedance-2.0-720p",
+    "seedance-2.0-fast-720p",
+    "seedance-720"
+]
+enabled = true
+
 [billing.pricing.veo31-fast]
 per_request = 0.60
 
@@ -71,4 +87,24 @@ per_request = 0.40
 
 [billing.pricing.grok-imagine-video-1.5-preview]
 per_request = 0.50
+
+[billing.pricing.sd2-c7]
+per_request = 1.50
+
+[billing.pricing.sd2-c8]
+per_request = 4.00
+
+[billing.pricing.sd2-mini]
+per_request = 2.00
+
+[billing.pricing.seedance-2.0-720p]
+per_request = 4.00
+
+[billing.pricing.seedance-2.0-fast-720p]
+per_request = 2.00
+
+[billing.pricing.seedance-720]
+per_request = 4.00
+
+
 

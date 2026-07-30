@@ -250,7 +250,7 @@ async def _extract_images_from_payload(payload: Any) -> list[str]:
                 pass
 
     if isinstance(payload, dict):
-        for field in ("images", "input_reference", "input_references", "reference_images"):
+        for field in ("images", "input_reference", "input_references", "reference_images", "image_refs"):
             val = payload.get(field)
             if not val:
                 continue
@@ -300,6 +300,30 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
         body.pop("input_reference", None)
         body.pop("input_references", None)
         body.pop("reference_images", None)
+    elif model == "sd2-c7":
+        if "image_refs" not in body or not body["image_refs"]:
+            if urls:
+                body["image_refs"] = urls[:9]
+        elif isinstance(body["image_refs"], list):
+            body["image_refs"] = [str(u) for u in body["image_refs"] if u][:9]
+        if urls and "input_reference" not in body:
+            body["input_reference"] = urls[0]
+        if urls and "images" not in body:
+            body["images"] = urls[:9]
+    elif model.startswith("sd2-") or model.startswith("seedance"):
+        if "image_refs" not in body or not body["image_refs"]:
+            if urls:
+                body["image_refs"] = urls[:9]
+        elif isinstance(body["image_refs"], list):
+            body["image_refs"] = [str(u) for u in body["image_refs"] if u][:9]
+        if "video_refs" in body and isinstance(body["video_refs"], list):
+            body["video_refs"] = [str(v) for v in body["video_refs"] if v][:3]
+        if "audio_refs" in body and isinstance(body["audio_refs"], list):
+            body["audio_refs"] = [str(a) for a in body["audio_refs"] if a][:3]
+        if urls and "input_reference" not in body:
+            body["input_reference"] = urls[0]
+        if urls and "images" not in body:
+            body["images"] = urls[:9]
     else:
         body["images"] = urls
         if urls:
@@ -747,17 +771,19 @@ async def videos_create(request: Request):
     billing_key = getattr(request.state, "billing_key", None)
     content_type = request.headers.get("content-type", "")
 
+    json_raw_body: dict[str, Any] | None = None
+
     if "application/json" in content_type:
-        body = await request.json()
-        model = body.get("model")
-        prompt = body.get("prompt")
-        seconds = body.get("seconds") or body.get("duration") or body.get("video_length") or 6
-        size = body.get("size") or body.get("aspect_ratio") or "720x1280"
-        resolution_name = body.get("resolution_name") or body.get("resolution")
-        preset = body.get("preset")
-        aspect_ratio = body.get("aspect_ratio")
-        resolution = body.get("resolution")
-        urls = await _extract_images_from_payload(body)
+        json_raw_body = await request.json()
+        model = json_raw_body.get("model")
+        prompt = json_raw_body.get("prompt")
+        seconds = json_raw_body.get("seconds") or json_raw_body.get("duration") or json_raw_body.get("video_length") or 6
+        size = json_raw_body.get("size") or json_raw_body.get("aspect_ratio") or "720x1280"
+        resolution_name = json_raw_body.get("resolution_name") or json_raw_body.get("resolution")
+        preset = json_raw_body.get("preset")
+        aspect_ratio = json_raw_body.get("aspect_ratio")
+        resolution = json_raw_body.get("resolution")
+        urls = await _extract_images_from_payload(json_raw_body)
     else:
         form = await request.form()
         payload = {}
@@ -777,7 +803,7 @@ async def videos_create(request: Request):
 
         model = payload.get("model")
         prompt = payload.get("prompt")
-        seconds = payload.get("seconds") or 6
+        seconds = payload.get("seconds") or payload.get("duration") or 6
         size = payload.get("size") or "720x1280"
         resolution_name = payload.get("resolution_name")
         preset = payload.get("preset")
@@ -794,11 +820,14 @@ async def videos_create(request: Request):
     )
 
     if is_third_party_video_model(model) and is_newapi_enabled():
-        # Build JSON body for /v1/video/create
-        body: dict[str, Any] = {
-            "model": model,
-            "prompt": prompt,
-        }
+        # Build JSON body for /v1/video/create or /v1/videos
+        if json_raw_body is not None:
+            body: dict[str, Any] = dict(json_raw_body)
+        else:
+            body: dict[str, Any] = {
+                "model": model,
+                "prompt": prompt,
+            }
         try:
             sec_int = int(seconds)
             body["seconds"] = str(sec_int)

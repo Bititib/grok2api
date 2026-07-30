@@ -668,22 +668,38 @@ THIRD_PARTY_VIDEO_MODELS: frozenset[str] = frozenset({
     "sora2",
     "gemini-omni-flash",
     "veo31-fast",
+    "sd2-c7",
+    "sd2-c8",
+    "sd2-mini",
+    "seedance-2.0-720p",
+    "seedance-2.0-fast-720p",
+    "seedance-720",
 })
 
 
 def is_third_party_video_model(model: str) -> bool:
     """Check if a model should use third-party video creation interfaces."""
-    return model in THIRD_PARTY_VIDEO_MODELS
+    return (
+        model in THIRD_PARTY_VIDEO_MODELS
+        or model.startswith("sd2-")
+        or model.startswith("seedance")
+    )
 
 
 async def video_create(*, body: dict[str, Any]) -> dict[str, Any]:
     """Forward a video creation request via /v1/video/create or /v1/videos and return encoded ID."""
     model = body.get("model", "unknown")
     chan = _select_channel(model)
-    urls = [
-        f"{chan.base_url}/v1/video/create",
-        f"{chan.base_url}/v1/videos",
-    ]
+    if model.startswith("sd2-") or model.startswith("seedance"):
+        urls = [
+            f"{chan.base_url}/v1/videos",
+            f"{chan.base_url}/v1/video/create",
+        ]
+    else:
+        urls = [
+            f"{chan.base_url}/v1/video/create",
+            f"{chan.base_url}/v1/videos",
+        ]
 
     last_exc = None
     async with aiohttp.ClientSession(
@@ -732,6 +748,20 @@ async def video_query(video_id: str) -> dict[str, Any]:
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=min(chan.timeout, 30))
     ) as session:
+        if (model and (model.startswith("sd2-") or model.startswith("seedance"))) or "sd2" in channel_id or "seedance" in channel_id:
+            url_path = f"{chan.base_url}/v1/videos/{original_id}"
+            logger.info("newapi video_query proxy for seedance model: url={}", url_path)
+            try:
+                async with session.get(url_path, headers=_headers(chan.api_key)) as resp:
+                    if resp.status != 404:
+                        resp.raise_for_status()
+                        res = await resp.json()
+                        res = await _cache_video_response_if_needed(res, prompt=prompt, model=model)
+                        return _encode_response_ids(res, channel_id)
+            except aiohttp.ClientResponseError as exc:
+                if exc.status != 404:
+                    raise exc
+
         # 1. Try /v1/video/query?id=...
         url_query = f"{chan.base_url}/v1/video/query"
         logger.info(
