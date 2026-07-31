@@ -1010,17 +1010,8 @@
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
               <span>对话模型 (按 Token 计费)</span>
             </div>
-            <div class="price-row">
-              <span class="price-model">grok-4 / grok-3</span>
-              <span class="price-val">输入 $3.00 / 输出 $15.00</span>
-            </div>
-            <div class="price-row">
-              <span class="price-model">grok-4-mini / grok-3-mini</span>
-              <span class="price-val">输入 $0.30 / 输出 $0.50</span>
-            </div>
-            <div class="price-row">
-              <span class="price-model">grok-3-fast</span>
-              <span class="price-val">输入 $0.60 / 输出 $3.00</span>
+            <div id="pricing-chat-list">
+              <!-- Dynamically populated -->
             </div>
           </div>
 
@@ -1028,23 +1019,10 @@
           <div class="price-card">
             <div class="price-card-title">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-              <span>图像生成 (按次计费)</span>
+              <span>图像生成与工具 (按次计费)</span>
             </div>
-            <div class="price-row">
-              <span class="price-model">imagine-image-lite</span>
-              <span class="price-val">$0.02 / 次</span>
-            </div>
-            <div class="price-row">
-              <span class="price-model">imagine-image</span>
-              <span class="price-val">$0.04 / 次</span>
-            </div>
-            <div class="price-row">
-              <span class="price-model">imagine-image-pro</span>
-              <span class="price-val">$0.06 / 次</span>
-            </div>
-            <div class="price-row">
-              <span class="price-model">imagine-image-edit</span>
-              <span class="price-val">$0.04 / 次</span>
+            <div id="pricing-image-list">
+              <!-- Dynamically populated -->
             </div>
           </div>
 
@@ -1052,15 +1030,10 @@
           <div class="price-card">
             <div class="price-card-title">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
-              <span>视频生成 (按秒 × 分辨率)</span>
+              <span>视频生成 (按秒/按次计费)</span>
             </div>
-            <div class="price-row">
-              <span class="price-model">480p 视频</span>
-              <span class="price-val">$0.02 / 秒</span>
-            </div>
-            <div class="price-row">
-              <span class="price-model">720p 视频</span>
-              <span class="price-val">$0.03 / 秒</span>
+            <div id="pricing-video-list">
+              <!-- Dynamically populated -->
             </div>
             <div class="price-desc" style="font-size: 11px; color: var(--text-subtle); margin-top: 12px; line-height: 1.5;">
               ⚠️ 视频费用以生成时长进行精细计算，视频任务报错或取消不计费。
@@ -1125,6 +1098,7 @@
     const PAGE_SIZE = 15;
     let _rawLogs = [];
     let _filteredLogs = [];
+    let _refreshInterval = null;
 
     /* Check login status on load */
     window.addEventListener('DOMContentLoaded', () => {
@@ -1216,6 +1190,7 @@
     }
 
     function handleLogout() {
+      stopAutoRefresh();
       localStorage.removeItem('zhuboapi_dashboard_user_key');
       _apiKey = '';
       document.getElementById('api-key-input').value = '';
@@ -1237,23 +1212,27 @@
         document.getElementById('stat-charged').textContent = `$${balance.total_charged.toFixed(4)}`;
         
         _currentPage = 1;
-        await loadLogs();
+        await loadLogs(false);
+        await loadPricing();
+        startAutoRefresh();
       } catch (err) {
         showToast(`加载数据失败: ${err.message}`, 'error');
         handleLogout();
       }
     }
 
-    async function loadLogs() {
+    async function loadLogs(silent = false) {
       const tbody = document.getElementById('logs-tbody');
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="8" class="empty-state">
-            <div class="empty-icon">⏳</div>
-            <div>正在加载用量日志...</div>
-          </td>
-        </tr>
-      `;
+      if (!silent) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="8" class="empty-state">
+              <div class="empty-icon">⏳</div>
+              <div>正在加载用量日志...</div>
+            </td>
+          </tr>
+        `;
+      }
 
       try {
         const usage = await apiRequest(`/v1/billing/usage?page=${_currentPage}&page_size=${PAGE_SIZE}`);
@@ -1276,7 +1255,96 @@
         renderLogs(_rawLogs);
         
       } catch (err) {
-        showToast(`用量拉取失败: ${err.message}`, 'error');
+        if (!silent) {
+          showToast(`用量拉取失败: ${err.message}`, 'error');
+        }
+      }
+    }
+
+    function startAutoRefresh() {
+      stopAutoRefresh();
+      // Poll every 10 seconds
+      _refreshInterval = setInterval(() => {
+        if (document.visibilityState === 'visible' && _apiKey) {
+          refreshDashboardData();
+        }
+      }, 10000);
+    }
+
+    function stopAutoRefresh() {
+      if (_refreshInterval) {
+        clearInterval(_refreshInterval);
+        _refreshInterval = null;
+      }
+    }
+
+    async function refreshDashboardData() {
+      try {
+        const balance = await apiRequest('/v1/billing/balance');
+        document.getElementById('stat-balance').textContent = `$${balance.balance.toFixed(4)}`;
+        document.getElementById('stat-charged').textContent = `$${balance.total_charged.toFixed(4)}`;
+        
+        // Reload logs silently for the current page
+        await loadLogs(true);
+      } catch (err) {
+        console.error("Auto-refresh failed:", err);
+        if (err.message.includes('401') || err.message.includes('403')) {
+          stopAutoRefresh();
+          handleLogout();
+        }
+      }
+    }
+
+    async function loadPricing() {
+      const chatList = document.getElementById('pricing-chat-list');
+      const imageList = document.getElementById('pricing-image-list');
+      const videoList = document.getElementById('pricing-video-list');
+      
+      chatList.innerHTML = '<div class="empty-state">加载中...</div>';
+      imageList.innerHTML = '<div class="empty-state">加载中...</div>';
+      videoList.innerHTML = '<div class="empty-state">加载中...</div>';
+      
+      try {
+        const res = await apiRequest('/v1/models');
+        const models = res.data || [];
+        
+        let chatHtml = '';
+        let imageHtml = '';
+        let videoHtml = '';
+        
+        models.forEach(m => {
+          const mid = m.id || '';
+          const name = m.name || mid;
+          const price = m.price || '免费 / 未配置';
+          
+          const midLower = mid.toLowerCase();
+          const isVideo = midLower.includes('video') || midLower.includes('vref') || midLower.includes('veo') || midLower.includes('sora') || midLower.includes('seedance') || midLower.startsWith('sd2-') || price.includes('秒') || price.includes('second');
+          const isImage = midLower.includes('image') || midLower.includes('imagine') || midLower.includes('remover') || midLower.includes('moderation') || price.includes('次') || price.includes('remover');
+          
+          const rowHtml = `
+            <div class="price-row">
+              <span class="price-model">${escapeHtml(name)} <small style="color:var(--text-subtle);font-size:10px;margin-left:4px;">${escapeHtml(mid)}</small></span>
+              <span class="price-val">${escapeHtml(price)}</span>
+            </div>
+          `;
+          
+          if (isVideo) {
+            videoHtml += rowHtml;
+          } else if (isImage) {
+            imageHtml += rowHtml;
+          } else {
+            chatHtml += rowHtml;
+          }
+        });
+        
+        chatList.innerHTML = chatHtml || '<div class="empty-state">暂无对话模型</div>';
+        imageList.innerHTML = imageHtml || '<div class="empty-state">暂无图像模型</div>';
+        videoList.innerHTML = videoHtml || '<div class="empty-state">暂无视频模型</div>';
+      } catch (err) {
+        console.error('Failed to load pricing:', err);
+        chatList.innerHTML = '<div class="empty-state" style="color:var(--error)">加载失败</div>';
+        imageList.innerHTML = '<div class="empty-state" style="color:var(--error)">加载失败</div>';
+        videoList.innerHTML = '<div class="empty-state" style="color:var(--error)">加载失败</div>';
       }
     }
 

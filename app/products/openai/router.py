@@ -66,6 +66,10 @@ async def list_models(request: Request):
     import time
     from app.platform.config.snapshot import get_config as _cfg
 
+    cfg = _cfg()
+    exclude_list = cfg.get_list("providers.newapi.exclude_models", [])
+    exclude = {str(item).strip() for item in exclude_list if item}
+
     pools = await _available_pools(request)
     models = [
         {
@@ -76,18 +80,19 @@ async def list_models(request: Request):
             "name": m.public_name,
         }
         for m in model_registry.list_enabled()
-        if _model_available_for_pools(m, pools)
+        if _model_available_for_pools(m, pools) and m.model_name not in exclude
     ]
 
     # Merge NewAPI upstream models if enabled
     from app.control.provider.newapi import is_newapi_enabled, list_models as newapi_list
 
-    if is_newapi_enabled() and _cfg().get_bool("providers.newapi.merge_models", True):
+    if is_newapi_enabled() and cfg.get_bool("providers.newapi.merge_models", True):
         local_ids = {m["id"] for m in models}
         try:
             upstream = await newapi_list()
             for um in upstream:
-                if um.get("id") not in local_ids:
+                mid = um.get("id")
+                if mid not in local_ids and mid not in exclude:
                     models.append(um)
         except Exception as exc:
             logger.debug("newapi model merge skipped: error={}", exc)
