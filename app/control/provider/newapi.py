@@ -16,6 +16,16 @@ import orjson
 
 from app.platform.config.snapshot import get_config
 from app.platform.logging.logger import logger
+from app.platform.errors import UpstreamError
+
+def _check_json_error(res: Any) -> None:
+    """If the upstream returned a JSON containing an error, raise UpstreamError."""
+    if isinstance(res, dict) and "error" in res:
+        err_info = res["error"] or {}
+        msg = err_info.get("message") or err_info.get("msg") or "Upstream service error"
+        code = err_info.get("code") or "upstream_error"
+        raise UpstreamError(message=f"Upstream error: {msg}", body=orjson.dumps(res).decode())
+
 
 
 @dataclass(slots=True)
@@ -361,7 +371,9 @@ async def _sync_chat(
     ) as session:
         async with session.post(url, json=payload, headers=_headers(api_key)) as resp:
             resp.raise_for_status()
-            return await resp.json()
+            res = await resp.json()
+            _check_json_error(res)
+            return res
 
 
 @dataclass
@@ -399,6 +411,12 @@ def _stream_chat(
             timeout=aiohttp.ClientTimeout(total=timeout)
         ) as session:
             async with session.post(url, json=payload, headers=_headers(api_key)) as resp:
+                content_type = resp.headers.get("Content-Type", "")
+                if "application/json" in content_type:
+                    res = await resp.json()
+                    _check_json_error(res)
+                    raise UpstreamError("Upstream returned JSON error in stream request")
+
                 resp.raise_for_status()
                 async for raw_line in resp.content:
                     line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
@@ -548,6 +566,7 @@ async def image_generations(
         async with session.post(url, json=payload, headers=_headers(chan.api_key)) as resp:
             resp.raise_for_status()
             res = await resp.json()
+            _check_json_error(res)
             return await _cache_image_response_if_needed(res, response_format, prompt=prompt, model=model)
 
 
@@ -593,6 +612,7 @@ async def image_edits(
         async with session.post(url, json=payload, headers=_headers(chan.api_key)) as resp:
             resp.raise_for_status()
             res = await resp.json()
+            _check_json_error(res)
             return await _cache_image_response_if_needed(res, response_format, prompt=prompt, model=model)
 
 
@@ -620,6 +640,7 @@ async def video_generations(
         async with session.post(url, json=body, headers=_headers(chan.api_key)) as resp:
             resp.raise_for_status()
             res = await resp.json()
+            _check_json_error(res)
             # Store prompt/model in memory
             task_id = res.get("id") or res.get("task_id")
             if not task_id and isinstance(res.get("data"), dict):
@@ -719,6 +740,7 @@ async def video_create(*, body: dict[str, Any]) -> dict[str, Any]:
                         continue
                     resp.raise_for_status()
                     res = await resp.json()
+                    _check_json_error(res)
                     task_id = res.get("id") or res.get("task_id")
                     if not task_id and isinstance(res.get("data"), dict):
                         task_id = res.get("data").get("id") or res.get("data").get("task_id")

@@ -1295,12 +1295,35 @@ async def video_generations_create(request: Request):
     return JSONResponse(result)
 
 
+def _is_video_failed(res: Any) -> bool:
+    """Check if the video generation task result indicates failure."""
+    if not isinstance(res, dict):
+        return False
+    if "error" in res or "err" in res:
+        return True
+
+    # Check status
+    status = str(res.get("status") or "").lower()
+    if status in ("failed", "error", "fail"):
+        return True
+
+    nested_data = res.get("data")
+    if isinstance(nested_data, dict):
+        if "error" in nested_data or "err" in nested_data:
+            return True
+        status = str(nested_data.get("status") or "").lower()
+        if status in ("failed", "error", "fail"):
+            return True
+
+    return False
+
+
 @router.get(
     "/video/generations/{task_id}",
     tags=[_TAG_VIDEO_GEN],
     dependencies=[Depends(verify_api_key)],
 )
-async def video_generations_poll(task_id: str):
+async def video_generations_poll(task_id: str, request: Request):
     """Poll the status of a video generation task from the NewAPI relay."""
     from app.control.provider.newapi import is_newapi_enabled, video_generations_poll as newapi_poll
 
@@ -1318,6 +1341,18 @@ async def video_generations_poll(task_id: str):
             {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
             status_code=502,
         )
+
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is not None and _is_video_failed(result):
+        from app.control.billing.service import get_billing_service
+        svc = get_billing_service()
+        if svc is not None:
+            try:
+                refunded = await svc.refund_failed_request(task_id)
+                if refunded > 0:
+                    logger.info("Refunded ${} for failed video task {}", refunded, task_id)
+            except Exception as refund_exc:
+                logger.warning("Failed to refund for task {}: {}", task_id, refund_exc)
 
     return JSONResponse(result)
 
@@ -1407,6 +1442,7 @@ async def video_create_endpoint(request: Request):
     dependencies=[Depends(verify_api_key)],
 )
 async def video_query_endpoint(
+    request: Request,
     id: str = Query(..., description="Video task ID"),
 ):
     """Query the status of a third-party video generation task.
@@ -1429,6 +1465,18 @@ async def video_query_endpoint(
             {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
             status_code=502,
         )
+
+    billing_key = getattr(request.state, "billing_key", None)
+    if billing_key is not None and _is_video_failed(result):
+        from app.control.billing.service import get_billing_service
+        svc = get_billing_service()
+        if svc is not None:
+            try:
+                refunded = await svc.refund_failed_request(id)
+                if refunded > 0:
+                    logger.info("Refunded ${} for failed video query task {}", refunded, id)
+            except Exception as refund_exc:
+                logger.warning("Failed to refund for query task {}: {}", id, refund_exc)
 
     return JSONResponse(result)
 

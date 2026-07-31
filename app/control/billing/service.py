@@ -79,6 +79,10 @@ class BillingService:
         """Fully refund a hold (generation failed, nothing consumed)."""
         await self.repo.refund_hold(key, amount)
 
+    async def refund_failed_request(self, request_id: str) -> float:
+        """Query log by request_id. If status is 'success', refund cost and set status to 'failed'."""
+        return await self.repo.refund_failed_log(request_id)
+
     # ── Usage recording ───────────────────────────────────────────────────
 
     async def record_usage(

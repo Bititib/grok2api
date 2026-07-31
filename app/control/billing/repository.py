@@ -250,6 +250,39 @@ class BillingRepository:
         )
         await self.db.commit()
 
+    async def refund_failed_log(self, request_id: str) -> float:
+        """Query the log by request_id. If found, status is 'success', and cost > 0, refund the cost to key balance.
+        Sets status to 'failed' in log.
+        Returns the refunded amount.
+        """
+        if not request_id:
+            return 0.0
+        async with self.db.execute(
+            "SELECT api_key, cost FROM usage_logs WHERE request_id = ? AND status = 'success'",
+            (request_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return 0.0
+
+        api_key, cost = row
+        if cost <= 0.0:
+            return 0.0
+
+        # Update log to status='failed'
+        await self.db.execute(
+            "UPDATE usage_logs SET status = 'failed', error_message = 'Upstream task failed' WHERE request_id = ?",
+            (request_id,),
+        )
+
+        # Refund key balance and decrement total_charged
+        await self.db.execute(
+            "UPDATE api_keys SET balance = balance + ?, total_charged = total_charged - ? WHERE key = ?",
+            (cost, cost, api_key),
+        )
+        await self.db.commit()
+        return cost
+
     # ── Usage Log ─────────────────────────────────────────────────────────
 
     async def insert_log(self, log: UsageLog) -> None:
