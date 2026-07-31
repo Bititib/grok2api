@@ -666,6 +666,8 @@ THIRD_PARTY_VIDEO_MODELS: frozenset[str] = frozenset({
     "grok-imagine-1.0-video",
     "grok-imagine-video-1.5-fast",
     "sora2",
+    "sora-v3-933-pro",
+    "tejiasd2",
     "gemini-omni-flash",
     "veo31-fast",
     "sd2-c7",
