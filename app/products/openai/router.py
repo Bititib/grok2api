@@ -342,6 +342,11 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
     if "sora" in model.lower() or "tejiasd" in model.lower():
         if "resolution" not in body:
             body["resolution"] = "720p"
+        if urls:
+            if not body.get("image_url"):
+                body["image_url"] = urls[0]
+            if len(urls) > 1 and not body.get("reference_image_urls") and not body.get("reference_images"):
+                body["reference_image_urls"] = urls[1:]
 
     if model == "grok-imagine-video-1.5-preview":
         if urls:
