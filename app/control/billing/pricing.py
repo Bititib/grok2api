@@ -61,7 +61,6 @@ _DEFAULT_PRICING: dict[str, ModelPricing] = {
     "sd2-mini":                ModelPricing(is_video=True),
     "seedance-2.0-720p":       ModelPricing(is_video=True),
     "seedance-2.0-fast-720p":  ModelPricing(is_video=True),
-    "seedance-720":            ModelPricing(is_video=True),
     "omni-watermark-remover":  ModelPricing(per_request=0.10),
 }
 

@@ -262,8 +262,11 @@ per_request = 4.00
 [billing.pricing.sd2-mini]
 per_request = 2.00
 
-[billing.pricing.seedance-720]
-per_request = 4.00
+[billing.pricing.seedance-2.0-720p]
+per_request = 3.00
+
+[billing.pricing.seedance-2.0-fast-720p]
+per_request = 2.00
 
 
 

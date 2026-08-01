@@ -29,7 +29,8 @@
 | **`omni-flash-vref`** | `720p` / `1080p` | `16:9` / `9:16` | 自定义 | ✅ 支持视频参考控制 | **0.22 元 / 秒 (720p)** | Omni 视频参考控制生成 |
 | **`sd2-c7`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 最多 9 张参考图 | **1.50 元 / 次** | Seedance 2.0 9图参考生成 |
 | **`sd2-mini`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) | **2.00 元 / 次** | Seedance Mini 720p 多模态视频生成 |
-| **`seedance-720`** / **`sd2-c8`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) / 真人面部 | **4.00 元 / 次** | Seedance 2.0 满血版（人脸参考+合规素材） |
+| **`seedance-2.0-720p`** / **`sd2-c8`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) / 真人面部 | **3.00 元 / 次** | Seedance 2.0 满血版（人脸参考+合规素材） |
+| **`seedance-2.0-fast-720p`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) | **2.00 元 / 次** | Seedance 2.0 高速版视频生成 |
 
 ---
 
@@ -150,14 +151,14 @@ curl -X POST "https://grokai.zhubo.asia/v1/videos" \
 
 ### 3.4 Seedance 2.0 多模态与人脸参考接口：`POST /v1/videos`
 
-Seedance 2.0 模型（`sd2-c7`、`sd2-mini`、`seedance-720`）支持多张图片、视频与音频参考联动，提示词可通过 `@ImageN`、`@VideoN`、`@AudioN` 引用素材。
+Seedance 2.0 模型（`sd2-c7`、`sd2-mini`、`seedance-2.0-720p`、`seedance-2.0-fast-720p`）支持多张图片、视频与音频参考联动，提示词可通过 `@ImageN`、`@VideoN`、`@AudioN` 引用素材。
 
 | 参数 | 类型 | 说明 |
 |---|---|---|
-| `model` | string | `sd2-c7`（1.5元/次）、`sd2-mini`（2.0元/次）、`seedance-720`（4.0元/次） |
+| `model` | string | `sd2-c7`（1.5元/次）、`sd2-mini`（2.0元/次）、`seedance-2.0-720p`（3.0元/次）、`seedance-2.0-fast-720p`（2.0元/次） |
 | `prompt` | string | 提示词，引用素材时插入 `@Image1`、`@Video1`、`@Audio1` 等占位符 |
 | `duration` | integer | 视频时长（秒），范围 `5`–`15`，默认 `8` |
-| `aspect_ratio` | string | 画面比例：`16:9`（默认）、`9:16`、`1:1`、`21:9`、`3:4`、`4:3` |
+| `aspect_ratio` | string | 画面比例：`16:9`（默认）、`9:16`、`1:1`、`21:9`、`3:4` / `4:3` |
 | `image_refs` | array[string] | 图片参考 URL 列表，最多 **9** 张（支持真人面部或身体照片） |
 | `video_refs` | array[string] | 视频参考 URL 列表，最多 **3** 条（用于动作、镜头参考） |
 | `audio_refs` | array[string] | 音频参考 URL 列表，最多 **3** 条（用于配音、音色参考） |
@@ -171,7 +172,7 @@ curl -X POST "https://grokai.zhubo.asia/v1/videos" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "seedance-720",
+    "model": "seedance-2.0-720p",
     "prompt": "@Image1 是张三，张三使用 @Audio1。@Image2 是小红，小红参考 @Video1 的动作。两人面向镜头分别说：欢迎来到门的世界。",
     "duration": 15,
     "aspect_ratio": "16:9",
