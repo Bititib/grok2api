@@ -692,7 +692,6 @@ THIRD_PARTY_VIDEO_MODELS: frozenset[str] = frozenset({
     "gemini-omni-flash",
     "veo31-fast",
     "sd2-c7",
-    "sd2-c8",
     "sd2-mini",
     "seedance-2.0-720p",
     "seedance-2.0-fast-720p",

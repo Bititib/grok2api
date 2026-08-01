@@ -57,7 +57,6 @@ _DEFAULT_PRICING: dict[str, ModelPricing] = {
     "gemini-omni-flash":       ModelPricing(is_video=True),
     "veo31-fast":              ModelPricing(is_video=True),
     "sd2-c7":                  ModelPricing(is_video=True),
-    "sd2-c8":                  ModelPricing(is_video=True),
     "sd2-mini":                ModelPricing(is_video=True),
     "seedance-2.0-720p":       ModelPricing(is_video=True),
     "seedance-2.0-fast-720p":  ModelPricing(is_video=True),
