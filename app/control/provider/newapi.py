@@ -437,6 +437,21 @@ def _stream_chat(
 # In-memory mapping from video task ID to (prompt, model)
 _VIDEO_TASK_METADATA: dict[str, tuple[str, str]] = {}
 
+# In-memory cache for final task responses (completed or failed)
+_COMPLETED_TASK_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def _is_final_status(res: dict[str, Any]) -> bool:
+    status = str(res.get("status") or "").lower()
+    if status in ("completed", "failed", "success", "finished"):
+        return True
+    nested_data = res.get("data")
+    if isinstance(nested_data, dict):
+        nested_status = str(nested_data.get("status") or "").lower()
+        if nested_status in ("completed", "failed", "success", "finished"):
+            return True
+    return False
+
 
 async def _cache_media_if_needed(url: str, media_type: str, prompt: str | None = None, model: str | None = None) -> str:
     """Download a third-party media URL and save it to the local cache, returning the local URL."""
@@ -657,6 +672,10 @@ async def video_generations(
 
 async def video_generations_poll(task_id: str) -> dict[str, Any]:
     """Poll the status of a video generation task using the encoded channel ID."""
+    if task_id in _COMPLETED_TASK_CACHE:
+        logger.info("Serving video poll from cache: task_id={}", task_id)
+        return _COMPLETED_TASK_CACHE[task_id]
+
     channel_id, original_id = _decode_id(task_id)
     chan = _select_channel_by_id(channel_id)
     url = f"{chan.base_url}/v1/video/generations/{original_id}"
@@ -675,7 +694,10 @@ async def video_generations_poll(task_id: str) -> dict[str, Any]:
             resp.raise_for_status()
             res = await resp.json()
             res = await _cache_video_response_if_needed(res, prompt=prompt, model=model)
-            return _encode_response_ids(res, channel_id)
+            encoded_res = _encode_response_ids(res, channel_id)
+            if _is_final_status(res):
+                _COMPLETED_TASK_CACHE[task_id] = encoded_res
+            return encoded_res
 
 
 # ---------------------------------------------------------------------------
@@ -763,6 +785,10 @@ async def video_create(*, body: dict[str, Any]) -> dict[str, Any]:
 
 async def video_query(video_id: str) -> dict[str, Any]:
     """Query video task status via GET /v1/video/query?id={video_id} or GET /v1/videos/{video_id}."""
+    if video_id in _COMPLETED_TASK_CACHE:
+        logger.info("Serving video query from cache: video_id={}", video_id)
+        return _COMPLETED_TASK_CACHE[video_id]
+
     channel_id, original_id = _decode_id(video_id)
     chan = _select_channel_by_id(channel_id)
     prompt, model = _VIDEO_TASK_METADATA.get(str(original_id), (None, None))
@@ -779,7 +805,10 @@ async def video_query(video_id: str) -> dict[str, Any]:
                         resp.raise_for_status()
                         res = await resp.json()
                         res = await _cache_video_response_if_needed(res, prompt=prompt, model=model)
-                        return _encode_response_ids(res, channel_id)
+                        encoded_res = _encode_response_ids(res, channel_id)
+                        if _is_final_status(res):
+                            _COMPLETED_TASK_CACHE[video_id] = encoded_res
+                        return encoded_res
             except aiohttp.ClientResponseError as exc:
                 if exc.status != 404:
                     raise exc
@@ -800,7 +829,10 @@ async def video_query(video_id: str) -> dict[str, Any]:
                     resp.raise_for_status()
                     res = await resp.json()
                     res = await _cache_video_response_if_needed(res, prompt=prompt, model=model)
-                    return _encode_response_ids(res, channel_id)
+                    encoded_res = _encode_response_ids(res, channel_id)
+                    if _is_final_status(res):
+                        _COMPLETED_TASK_CACHE[video_id] = encoded_res
+                    return encoded_res
         except aiohttp.ClientResponseError as exc:
             if exc.status != 404:
                 raise exc
@@ -812,7 +844,10 @@ async def video_query(video_id: str) -> dict[str, Any]:
             resp.raise_for_status()
             res = await resp.json()
             res = await _cache_video_response_if_needed(res, prompt=prompt, model=model)
-            return _encode_response_ids(res, channel_id)
+            encoded_res = _encode_response_ids(res, channel_id)
+            if _is_final_status(res):
+                _COMPLETED_TASK_CACHE[video_id] = encoded_res
+            return encoded_res
 
 
 __all__ = [
