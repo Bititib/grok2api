@@ -29,7 +29,7 @@
     .tab-panel.active { display:block }
 
     /* Stats */
-    .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px }
+    .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:24px }
     .stat-cell { min-height:88px; padding:14px 16px; border-radius:12px; background:#fff; display:flex; flex-direction:column; gap:12px }
     .stat-top { display:flex; align-items:center; justify-content:space-between }
     .stat-label { font-size:11px; color:#8a8a8a }
@@ -128,9 +128,8 @@
   <!-- Stats -->
   <div class="stat-grid" id="pricing-stats">
     <div class="stat-cell"><div class="stat-top"><div class="stat-label">模型总数</div><span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></span></div><div class="stat-num" id="s-total">0</div></div>
-    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按次计费</div><span class="stat-icon" style="color:#d97706"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span></div><div class="stat-num" id="s-per-req" style="color:#d97706">0</div></div>
-    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按秒计费 (视频)</div><span class="stat-icon" style="color:#2563eb"><svg viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg></span></div><div class="stat-num" id="s-video" style="color:#2563eb">0</div></div>
-    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按 Token 计费</div><span class="stat-icon" style="color:#059669"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span></div><div class="stat-num" id="s-token" style="color:#059669">0</div></div>
+    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按次计费 (图片/固定计费视频)</div><span class="stat-icon" style="color:#d97706"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span></div><div class="stat-num" id="s-per-req" style="color:#d97706">0</div></div>
+    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按秒计费 (动态视频)</div><span class="stat-icon" style="color:#2563eb"><svg viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg></span></div><div class="stat-num" id="s-video" style="color:#2563eb">0</div></div>
   </div>
 
   <!-- Filter -->
@@ -139,8 +138,7 @@
     <select id="f-type" onchange="renderTable()">
       <option value="">全部类型</option>
       <option value="per_request">按次计费</option>
-      <option value="video">按秒计费 (视频)</option>
-      <option value="token">按 Token 计费</option>
+      <option value="video">按秒计费 (动态视频)</option>
     </select>
     <span class="filter-reset" onclick="document.getElementById('f-search').value='';document.getElementById('f-type').value='';renderTable()">重置</span>
   </div>
@@ -164,18 +162,15 @@
   <div class="modal">
     <div class="modal-title">新增模型定价</div>
     <div class="dialog-body">
-      <div class="dialog-field"><span class="dialog-label">模型名称</span><input id="add-model" class="input mono" style="flex:1;height:32px;font-size:12px" placeholder="如 grok-new-model"></div>
+      <div class="dialog-field"><span class="dialog-label">模型名称</span><input id="add-model" class="input mono" style="flex:1;height:32px;font-size:12px" placeholder="如 sora-v4-933-pro"></div>
       <div class="dialog-field">
         <span class="dialog-label">计费类型</span>
         <select id="add-type" class="input" style="flex:1;height:32px;font-size:12px" onchange="toggleAddFields()">
           <option value="per_request">按次计费</option>
-          <option value="video">按秒计费 (视频)</option>
-          <option value="token">按 Token 计费</option>
+          <option value="video">按秒计费 (动态视频)</option>
         </select>
       </div>
       <div class="dialog-field" id="add-row-per-req"><span class="dialog-label">单价 (元/次)</span><input id="add-per-req" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="0.40" step="0.01" min="0"></div>
-      <div class="dialog-field" id="add-row-input" style="display:none"><span class="dialog-label">输入 (元/1M)</span><input id="add-input" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="1.0" step="0.01" min="0"></div>
-      <div class="dialog-field" id="add-row-output" style="display:none"><span class="dialog-label">输出 (元/1M)</span><input id="add-output" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="3.0" step="0.01" min="0"></div>
     </div>
     <div class="dialog-actions">
       <button onclick="closeModal('modal-add')" class="dialog-btn">取消</button>
@@ -225,6 +220,22 @@ async function loadConfig() {
 
   for (const [model, cfg] of Object.entries(pricing)) {
     if (typeof cfg !== 'object' || cfg === null) continue;
+
+    // Filter: only keep video and image models
+    const name = model.toLowerCase();
+    const isVideoOrImage = cfg.is_video || 
+                           name.includes("video") || 
+                           name.includes("imagine") || 
+                           name.includes("veo") || 
+                           name.includes("sora") || 
+                           name.includes("seedance") || 
+                           name.includes("sd2") || 
+                           name.includes("tejiasd") || 
+                           name.includes("image") ||
+                           name.includes("watermark") ||
+                           name.includes("omni-flash");
+    if (!isVideoOrImage) continue;
+
     const entry = { model };
     if (cfg.per_request !== undefined && cfg.per_request >= 0) {
       entry.type = 'per_request';
@@ -246,8 +257,8 @@ async function loadConfig() {
     _pricingModels.push(entry);
   }
 
-  // Sort: per_request first, then video, then token
-  const typeOrder = { per_request: 0, video: 1, token: 2 };
+  // Sort: per_request first, then video
+  const typeOrder = { per_request: 0, video: 1 };
   _pricingModels.sort((a, b) => (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99) || a.model.localeCompare(b.model));
 
   updateStats();
@@ -259,7 +270,6 @@ function updateStats() {
   document.getElementById('s-total').textContent = _pricingModels.length;
   document.getElementById('s-per-req').textContent = _pricingModels.filter(m => m.type === 'per_request').length;
   document.getElementById('s-video').textContent = _pricingModels.filter(m => m.type === 'video').length;
-  document.getElementById('s-token').textContent = _pricingModels.filter(m => m.type === 'token').length;
 }
 
 /* ─── Render Table ────────────────────────────────────────── */
@@ -411,8 +421,6 @@ function openAddModel() {
 function toggleAddFields() {
   const type = document.getElementById('add-type').value;
   document.getElementById('add-row-per-req').style.display = type === 'per_request' ? '' : 'none';
-  document.getElementById('add-row-input').style.display = type === 'token' ? '' : 'none';
-  document.getElementById('add-row-output').style.display = type === 'token' ? '' : 'none';
 }
 
 function closeModal(id) { document.getElementById(id).classList.remove('open'); }
