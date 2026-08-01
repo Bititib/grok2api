@@ -20,11 +20,6 @@
 
 | 模型名称 | 渲染画质 | 支持比例 | 允许时长 | 参考媒体支持 | 计费单价 | 模型说明 |
 |---|---|---|---|---|---|---|
-| **`grok-imagine-1.0-video`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多张参考图 | **0.40 元 / 次** | Grok 1.0 经典视频生成 |
-| **`grok-imagine-video-1.5-fast`** | `720p` | `16:9` / `9:16` | `6` 秒 | ✅ 支持多张参考图 | **0.40 元 / 次** | Grok 1.5 高速视频生成 |
-| **`grok-imagine-video-1.5-preview`** | `720p` | `16:9` / `9:16` | `6` 秒 | ⚠️ 支持 1 张参考图 | **0.50 元 / 次** | Grok 1.5 预览版图生视频 |
-| **`veo31-fast`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` 秒 | ✅ 最多 2 张 (首尾帧) | **0.60 元 / 次** | Veo 31 高清视频生成 |
-| **`gemini-omni-flash`** | `720p` / `1080p` | `16:9` / `9:16` | `4` / `6` / `8` / `10` 秒 | ✅ 最多 5 图 / 1 视频 | **0.85 元 / 次** | Omni 闪电版多模态视频 |
 | **`omni-flash`** | `720p` / `1080p` | `16:9` / `9:16` | 自定义 | ✅ 支持多张参考图 | **0.12 元 / 秒 (720p)** | Omni 动态计费视频 |
 | **`omni-flash-vref`** | `720p` / `1080p` | `16:9` / `9:16` | 自定义 | ✅ 支持视频参考控制 | **0.22 元 / 秒 (720p)** | Omni 视频参考控制生成 |
 | **`sd2-c7`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 最多 9 张参考图 | **1.50 元 / 次** | Seedance 2.0 9图参考生成 |
@@ -67,7 +62,7 @@
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|
-| `model` | string | 是 | - | 模型名称（如 `grok-imagine-1.0-video`、`veo31-fast`） |
+| `model` | string | 是 | - | 模型名称（如 `sora-v3-933-pro`、`seedance-2.0-fast-720p`） |
 | `prompt` | string | 是 | - | 视频生成提示词 |
 | `aspect_ratio` | string | 否 | `"16:9"` | 视频比例：`"16:9"` 或 `"9:16"` |
 | `seconds` / `duration` | integer / string | 否 | `6` | 视频时长（秒） |
@@ -79,7 +74,7 @@ curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-imagine-1.0-video",
+    "model": "seedance-2.0-fast-720p",
     "prompt": "A beautiful butterfly landing on a colorful flower, cinematic 4k",
     "aspect_ratio": "16:9",
     "seconds": 6
@@ -92,7 +87,7 @@ curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "veo31-fast",
+    "model": "omni-flash",
     "prompt": "Create a smooth cinematic transition between these two frames",
     "aspect_ratio": "16:9",
     "duration": 4,
@@ -109,7 +104,7 @@ curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
   "id": "task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
   "task_id": "task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
   "object": "video",
-  "model": "grok-imagine-1.0-video",
+  "model": "seedance-2.0-fast-720p",
   "status": "queued",
   "progress": 0,
   "created_at": 1785311571
@@ -120,7 +115,7 @@ curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
 
 ### 3.2 统一查询视频任务接口：`GET /v1/video/query`
 
-提交任务后，建议客户端每隔 **5 - 8 秒** 查询一次任务状态。
+提交任务后，建议客户端每隔 **5 - 8 秒** 查询一次任务 status。
 
 * **请求方式**：
 ```bash
@@ -134,7 +129,7 @@ curl -X GET "https://grokai.zhubo.asia/v1/video/query?id=task_auzaji6FWDFtnrogiJ
   "id": "task_auzaji6FWDFtnrogiJvyly6uPAD0SsAH",
   "status": "completed",
   "progress": 100,
-  "model": "grok-imagine-1.0-video",
+  "model": "seedance-2.0-fast-720p",
   "video_url": "https://grokai.zhubo.asia/v1/files/video?id=e38b5247-e327-4024-8ee5-3462d5375b48"
 }
 ```
@@ -149,9 +144,9 @@ curl -X GET "https://grokai.zhubo.asia/v1/video/query?id=task_auzaji6FWDFtnrogiJ
 ```bash
 curl -X POST "https://grokai.zhubo.asia/v1/videos" \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  -F "model=grok-imagine-1.0-video" \
+  -F "model=sora-v3-933-pro" \
   -F "prompt=Animate this uploaded photo" \
-  -F "seconds=6" \
+  -F "seconds=15" \
   -F "input_reference[]=@/path/to/local_image.jpg"
 ```
 
@@ -336,7 +331,7 @@ def generate_video(model_name: str, prompt: str, aspect_ratio: str = "16:9", ima
 # 使用示例：
 if __name__ == "__main__":
     generate_video(
-        model_name="grok-imagine-1.0-video",
+        model_name="sora-v3-933-pro",
         prompt="A butterfly landing on a colorful flower, cinematic 4k"
     )
 ```
