@@ -72,14 +72,24 @@ models = [
 enabled = true
 
 [[providers.newapi.channels]]
-id = "pidoi"
+id = "pidoi_video"
 name = "Pidoi 真人视频渠道"
 base_url = "https://pidoi.com"
 api_key = "sk-jONZxfxNTSIMij2f7CgUIIdZjQkCmadK8nG51dHa3WcZMvgG"
 timeout = 180
 models = [
     "tejiasd2",
-    "sora-v3-933-pro",
+    "sora-v3-933-pro"
+]
+enabled = true
+
+[[providers.newapi.channels]]
+id = "pidoi_image"
+name = "Pidoi 图像生成渠道"
+base_url = "https://pidoi.com"
+api_key = "sk-EWZUHbYAtE0T9aCqb2HeMbq8JBJk7ycaw731mFBWPe0CBLJ0"
+timeout = 180
+models = [
     "gpt-image-2"
 ]
 enabled = true
