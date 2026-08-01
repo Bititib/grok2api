@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Grok2API - 模型定价管理</title>
+  <link rel="icon" href="/favicon.ico?v={{APP_VERSION}}">
+  <link href="https://cdn.jsdelivr.net/npm/geist@1.0.0/dist/fonts/geist-sans/style.css" rel="stylesheet">
+  <link href="/static/css/app.css?v={{APP_VERSION}}" rel="stylesheet">
+  <style>
+    body { background:#FAF9F5 }
+    .page-hd { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px }
+    .page-title { font-size:22px; font-weight:700; line-height:1.2 }
+    .page-sub { font-size:13px; color:var(--fg-muted); margin-top:5px }
+    .page-actions { display:flex; gap:8px; align-items:center }
+    .page-action-btn { height:32px; padding:0 14px; border-radius:999px; display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; border:1px solid #e6e6e6; background:#fafafa; color:#444; cursor:pointer }
+    .page-action-btn:hover { background:#f3f3f3 }
+    .page-action-btn-primary { background:#111; border-color:#111; color:#fff }
+    .page-action-btn-primary:hover { background:#222 }
+    .page-action-btn-success { background:#16a34a; border-color:#16a34a; color:#fff }
+    .page-action-btn-success:hover { background:#15803d }
+
+    /* Tab bar */
+    .tab-bar { display:flex; gap:0; margin-bottom:24px; border-bottom:1px solid #e8e4dc }
+    .tab-item { padding:10px 18px; font-size:13px; font-weight:500; color:#8a8a8a; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s }
+    .tab-item:hover { color:#555 }
+    .tab-item.active { color:#111; border-bottom-color:#111; font-weight:600 }
+    .tab-panel { display:none }
+    .tab-panel.active { display:block }
+
+    /* Stats */
+    .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:24px }
+    .stat-cell { min-height:88px; padding:14px 16px; border-radius:12px; background:#fff; display:flex; flex-direction:column; gap:12px }
+    .stat-top { display:flex; align-items:center; justify-content:space-between }
+    .stat-label { font-size:11px; color:#8a8a8a }
+    .stat-icon { width:24px; height:24px; display:inline-flex; align-items:center; justify-content:center; color:#a3a3a3 }
+    .stat-icon svg { width:15px; height:15px; stroke:currentColor; fill:none; stroke-width:1.8 }
+    .stat-num { font-size:22px; font-weight:600; line-height:1; margin-top:auto }
+
+    /* Table */
+    .table-card { background:#fff; border-radius:14px; overflow-x:auto }
+    table { width:100%; border-collapse:collapse }
+    th { background:#fff; font-size:11px; font-weight:500; color:#9b9b9b; padding:11px 16px; text-align:left }
+    td { font-size:13px; padding:13px 16px; border-bottom:none; color:#3f3f3f; vertical-align:middle }
+    tr:hover td { background:#fdfdfd }
+    .badge { display:inline-flex; align-items:center; height:20px; padding:0 8px; border-radius:999px; font-size:11px; font-weight:500 }
+    .badge-video { color:#2563eb; background:#eef6ff }
+    .badge-image { color:#9333ea; background:#f5f3ff }
+    .badge-chat { color:#059669; background:#ecfdf5 }
+    .badge-per-req { color:#d97706; background:#fef3e2 }
+    .badge-tool { color:#6366f1; background:#eef2ff }
+    .mono { font-family:ui-monospace,monospace; font-size:12px; color:#333 }
+
+    /* Price input */
+    .price-input { width:80px; height:28px; padding:0 8px; border-radius:6px; border:1px solid #e0dcd4; background:#fff; font-size:13px; font-weight:600; color:#111; text-align:right; outline:none; font-family:ui-monospace,monospace }
+    .price-input:focus { border-color:#111; box-shadow:0 0 0 2px rgba(0,0,0,.06) }
+    .price-input.changed { border-color:#f59e0b; background:#fffbeb }
+    .price-unit { font-size:11px; color:#8a8a8a; margin-left:4px }
+
+    /* Row actions */
+    .row-actions { display:flex; align-items:center; gap:10px }
+    .row-action { color:#929292; font-size:11px; font-weight:500; cursor:pointer }
+    .row-action:hover { color:#555 }
+    .row-action-danger { color:#b7726a }
+    .row-action-danger:hover { color:#92514b }
+
+    /* Modal */
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:100 }
+    .modal-overlay.open { display:flex }
+    .modal { background:#FAF9F5; border-radius:16px; padding:24px; width:min(440px,92vw); max-height:85vh; overflow-y:auto }
+    .modal-title { font-size:16px; font-weight:600; margin-bottom:16px }
+    .dialog-body { display:grid; gap:12px }
+    .dialog-field { display:flex; align-items:center; gap:10px }
+    .dialog-label { width:80px; font-size:13px; color:var(--fg-muted); white-space:nowrap; flex:0 0 auto }
+    .dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px }
+    .dialog-btn { height:32px; padding:0 14px; border-radius:999px; background:#fafafa; color:#444; font-size:13px; font-weight:600; cursor:pointer; border:1px solid #e6e6e6 }
+    .dialog-btn:hover { background:#f3f3f3 }
+    .dialog-btn-primary { background:#111; color:#fff; border-color:#111 }
+    .dialog-btn-primary:hover { background:#222 }
+
+    /* Save bar */
+    .save-bar { position:fixed; bottom:0; left:0; right:0; background:rgba(17,17,17,.95); backdrop-filter:blur(8px); color:#fff; padding:12px 24px; display:none; align-items:center; justify-content:center; gap:12px; z-index:50; animation:slideUp .25s ease }
+    .save-bar.visible { display:flex }
+    .save-bar-text { font-size:13px; font-weight:500 }
+    .save-bar-count { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:999px; background:#f59e0b; color:#111; font-size:11px; font-weight:700 }
+    .save-bar-btn { height:34px; padding:0 20px; border-radius:999px; font-size:13px; font-weight:600; cursor:pointer; border:none }
+    .save-bar-btn-save { background:#16a34a; color:#fff }
+    .save-bar-btn-save:hover { background:#15803d }
+    .save-bar-btn-cancel { background:rgba(255,255,255,.15); color:#fff }
+    .save-bar-btn-cancel:hover { background:rgba(255,255,255,.25) }
+    @keyframes slideUp { from { transform:translateY(100%) } to { transform:translateY(0) } }
+
+    /* Filter */
+    .filter-bar { display:flex; gap:8px; align-items:center; margin-bottom:16px; flex-wrap:wrap }
+    .filter-bar select, .filter-bar input { height:32px; padding:0 10px; border-radius:8px; border:1px solid #e0dcd4; background:#fff; font-size:12px; color:#333; outline:none }
+    .filter-bar select:focus, .filter-bar input:focus { border-color:#111 }
+    .filter-bar input { width:200px }
+    .filter-bar select { min-width:120px }
+    .filter-reset { font-size:11px; color:#8a8a8a; cursor:pointer; padding:6px 10px }
+    .filter-reset:hover { color:#555 }
+
+    /* Responsive */
+    @media(max-width:768px){
+      .stat-grid{grid-template-columns:repeat(2,1fr)}
+      .filter-bar{flex-direction:column;align-items:stretch}
+      .filter-bar input{width:100%}
+    }
+  </style>
+</head>
+<body>
+
+<div id="admin-header" data-active="/admin/pricing"></div>
+
+<main class="admin-main">
+  <div class="page-hd">
+    <div>
+      <div class="page-title">模型定价管理</div>
+      <div class="page-sub">查看和编辑所有模型的计费单价，修改后实时生效</div>
+    </div>
+    <div class="page-actions">
+      <button onclick="openAddModel()" class="page-action-btn page-action-btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>新增模型</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stat-grid" id="pricing-stats">
+    <div class="stat-cell"><div class="stat-top"><div class="stat-label">模型总数</div><span class="stat-icon"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></span></div><div class="stat-num" id="s-total">0</div></div>
+    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按次计费</div><span class="stat-icon" style="color:#d97706"><svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span></div><div class="stat-num" id="s-per-req" style="color:#d97706">0</div></div>
+    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按秒计费 (视频)</div><span class="stat-icon" style="color:#2563eb"><svg viewBox="0 0 24 24"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/></svg></span></div><div class="stat-num" id="s-video" style="color:#2563eb">0</div></div>
+    <div class="stat-cell"><div class="stat-top"><div class="stat-label">按 Token 计费</div><span class="stat-icon" style="color:#059669"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg></span></div><div class="stat-num" id="s-token" style="color:#059669">0</div></div>
+  </div>
+
+  <!-- Filter -->
+  <div class="filter-bar">
+    <input id="f-search" placeholder="搜索模型名..." oninput="renderTable()">
+    <select id="f-type" onchange="renderTable()">
+      <option value="">全部类型</option>
+      <option value="per_request">按次计费</option>
+      <option value="video">按秒计费 (视频)</option>
+      <option value="token">按 Token 计费</option>
+    </select>
+    <span class="filter-reset" onclick="document.getElementById('f-search').value='';document.getElementById('f-type').value='';renderTable()">重置</span>
+  </div>
+
+  <!-- Table -->
+  <div class="table-card">
+    <table>
+      <thead><tr>
+        <th>模型名称</th>
+        <th>计费类型</th>
+        <th>单价</th>
+        <th style="width:80px">操作</th>
+      </tr></thead>
+      <tbody id="pricing-tbody"><tr><td colspan="4" class="empty-state">加载中...</td></tr></tbody>
+    </table>
+  </div>
+</main>
+
+<!-- Add Model Modal -->
+<div class="modal-overlay" id="modal-add">
+  <div class="modal">
+    <div class="modal-title">新增模型定价</div>
+    <div class="dialog-body">
+      <div class="dialog-field"><span class="dialog-label">模型名称</span><input id="add-model" class="input mono" style="flex:1;height:32px;font-size:12px" placeholder="如 grok-new-model"></div>
+      <div class="dialog-field">
+        <span class="dialog-label">计费类型</span>
+        <select id="add-type" class="input" style="flex:1;height:32px;font-size:12px" onchange="toggleAddFields()">
+          <option value="per_request">按次计费</option>
+          <option value="video">按秒计费 (视频)</option>
+          <option value="token">按 Token 计费</option>
+        </select>
+      </div>
+      <div class="dialog-field" id="add-row-per-req"><span class="dialog-label">单价 (元/次)</span><input id="add-per-req" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="0.40" step="0.01" min="0"></div>
+      <div class="dialog-field" id="add-row-input" style="display:none"><span class="dialog-label">输入 (元/1M)</span><input id="add-input" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="1.0" step="0.01" min="0"></div>
+      <div class="dialog-field" id="add-row-output" style="display:none"><span class="dialog-label">输出 (元/1M)</span><input id="add-output" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="3.0" step="0.01" min="0"></div>
+    </div>
+    <div class="dialog-actions">
+      <button onclick="closeModal('modal-add')" class="dialog-btn">取消</button>
+      <button onclick="doAddModel()" class="dialog-btn dialog-btn-primary">添加</button>
+    </div>
+  </div>
+</div>
+
+<!-- Save bar -->
+<div class="save-bar" id="save-bar">
+  <span class="save-bar-count" id="save-count">0</span>
+  <span class="save-bar-text">个模型价格已修改</span>
+  <button onclick="cancelChanges()" class="save-bar-btn save-bar-btn-cancel">撤销</button>
+  <button onclick="saveChanges()" class="save-bar-btn save-bar-btn-save">保存全部</button>
+</div>
+
+<script src="/static/js/i18n.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/auth.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/toast.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/admin-header.js?v={{APP_VERSION}}"></script>
+<script src="/static/js/footer.js?v={{APP_VERSION}}"></script>
+<script>
+/* ─── State ───────────────────────────────────────────────── */
+let _adminToken = '';
+let _configData = {};        // Full config.toml as flat JSON
+let _pricingModels = [];     // Array of { model, type, per_request, input, output, is_video }
+let _pendingChanges = {};    // model -> { field: newValue }
+
+/* ─── Init ────────────────────────────────────────────────── */
+(async () => {
+  _adminToken = await adminKey.get();
+  if (!_adminToken) { location.href = '/admin/login'; return; }
+  try { if (!(await verifyKey(ADMIN_API+'/verify', _adminToken))) { location.href='/admin/login'; return; } } catch { location.href='/admin/login'; return; }
+  await loadConfig();
+  await renderSiteFooter?.();
+})();
+
+/* ─── Load config and extract pricing ─────────────────────── */
+async function loadConfig() {
+  const r = await fetch(ADMIN_API + '/config', { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+  if (!r.ok) { showToast('加载配置失败', 'error'); return; }
+  _configData = await r.json();
+
+  // Extract all billing.pricing.* entries
+  const pricing = _configData?.billing?.pricing || {};
+  _pricingModels = [];
+
+  for (const [model, cfg] of Object.entries(pricing)) {
+    if (typeof cfg !== 'object' || cfg === null) continue;
+    const entry = { model };
+    if (cfg.per_request !== undefined && cfg.per_request >= 0) {
+      entry.type = 'per_request';
+      entry.per_request = parseFloat(cfg.per_request);
+    } else if (cfg.is_video) {
+      entry.type = 'video';
+      entry.is_video = true;
+      entry.video_cost_per_second_720p = cfg.video_cost_per_second_720p;
+      entry.video_cost_per_second_480p = cfg.video_cost_per_second_480p;
+    } else if (cfg.input !== undefined || cfg.output !== undefined) {
+      entry.type = 'token';
+      entry.input = parseFloat(cfg.input || 0);
+      entry.output = parseFloat(cfg.output || 0);
+    } else {
+      // Treat simple { per_request: N } from TOML where value is directly the number
+      entry.type = 'per_request';
+      entry.per_request = 0;
+    }
+    _pricingModels.push(entry);
+  }
+
+  // Sort: per_request first, then video, then token
+  const typeOrder = { per_request: 0, video: 1, token: 2 };
+  _pricingModels.sort((a, b) => (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99) || a.model.localeCompare(b.model));
+
+  updateStats();
+  renderTable();
+}
+
+/* ─── Stats ───────────────────────────────────────────────── */
+function updateStats() {
+  document.getElementById('s-total').textContent = _pricingModels.length;
+  document.getElementById('s-per-req').textContent = _pricingModels.filter(m => m.type === 'per_request').length;
+  document.getElementById('s-video').textContent = _pricingModels.filter(m => m.type === 'video').length;
+  document.getElementById('s-token').textContent = _pricingModels.filter(m => m.type === 'token').length;
+}
+
+/* ─── Render Table ────────────────────────────────────────── */
+function renderTable() {
+  const search = (document.getElementById('f-search').value || '').trim().toLowerCase();
+  const typeFilter = document.getElementById('f-type').value;
+
+  let filtered = _pricingModels;
+  if (search) filtered = filtered.filter(m => m.model.toLowerCase().includes(search));
+  if (typeFilter) filtered = filtered.filter(m => m.type === typeFilter);
+
+  const tbody = document.getElementById('pricing-tbody');
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">没有匹配的模型</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(m => {
+    const badgeClass = m.type === 'per_request' ? 'badge-per-req' : m.type === 'video' ? 'badge-video' : 'badge-chat';
+    const typeName = m.type === 'per_request' ? '按次计费' : m.type === 'video' ? '按秒计费' : '按 Token';
+    let priceCell = '';
+
+    if (m.type === 'per_request') {
+      const v = _pendingChanges[m.model]?.per_request ?? m.per_request;
+      const changed = _pendingChanges[m.model]?.per_request !== undefined;
+      priceCell = `<input type="number" class="price-input ${changed ? 'changed' : ''}" value="${v}" step="0.01" min="0" data-model="${m.model}" data-field="per_request" onchange="onPriceChange(this)"><span class="price-unit">元/次</span>`;
+    } else if (m.type === 'video') {
+      priceCell = `<span class="badge badge-video">按秒动态计费</span>`;
+    } else {
+      const iv = _pendingChanges[m.model]?.input ?? m.input;
+      const ov = _pendingChanges[m.model]?.output ?? m.output;
+      const ic = _pendingChanges[m.model]?.input !== undefined;
+      const oc = _pendingChanges[m.model]?.output !== undefined;
+      priceCell = `<input type="number" class="price-input ${ic ? 'changed' : ''}" value="${iv}" step="0.01" min="0" data-model="${m.model}" data-field="input" onchange="onPriceChange(this)" style="width:65px"><span class="price-unit">入</span>` +
+                  `<input type="number" class="price-input ${oc ? 'changed' : ''}" value="${ov}" step="0.01" min="0" data-model="${m.model}" data-field="output" onchange="onPriceChange(this)" style="width:65px;margin-left:8px"><span class="price-unit">出</span>`;
+    }
+
+    return `<tr>
+      <td class="mono">${m.model}</td>
+      <td><span class="badge ${badgeClass}">${typeName}</span></td>
+      <td>${priceCell}</td>
+      <td><div class="row-actions"><span class="row-action row-action-danger" onclick="deleteModel('${m.model}')">删除</span></div></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─── Price Change Handler ────────────────────────────────── */
+function onPriceChange(el) {
+  const model = el.dataset.model;
+  const field = el.dataset.field;
+  const newVal = parseFloat(el.value);
+  const entry = _pricingModels.find(m => m.model === model);
+  if (!entry) return;
+
+  const origVal = entry[field];
+  if (Math.abs(newVal - origVal) < 0.001) {
+    // Reverted to original
+    if (_pendingChanges[model]) {
+      delete _pendingChanges[model][field];
+      if (Object.keys(_pendingChanges[model]).length === 0) delete _pendingChanges[model];
+    }
+    el.classList.remove('changed');
+  } else {
+    if (!_pendingChanges[model]) _pendingChanges[model] = {};
+    _pendingChanges[model][field] = newVal;
+    el.classList.add('changed');
+  }
+  updateSaveBar();
+}
+
+/* ─── Save Bar ────────────────────────────────────────────── */
+function updateSaveBar() {
+  const count = Object.keys(_pendingChanges).length;
+  const bar = document.getElementById('save-bar');
+  document.getElementById('save-count').textContent = count;
+  bar.classList.toggle('visible', count > 0);
+}
+
+function cancelChanges() {
+  _pendingChanges = {};
+  updateSaveBar();
+  renderTable();
+}
+
+async function saveChanges() {
+  const count = Object.keys(_pendingChanges).length;
+  if (count === 0) return;
+
+  // Build config patch
+  const patch = {};
+  for (const [model, changes] of Object.entries(_pendingChanges)) {
+    for (const [field, value] of Object.entries(changes)) {
+      const key = `billing.pricing.${model}.${field}`;
+      patch[key] = value;
+    }
+  }
+
+  try {
+    const r = await fetch(ADMIN_API + '/config', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${_adminToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail?.message || e?.detail || r.statusText); }
+    showToast(`已保存 ${count} 个模型的定价`, 'success');
+    _pendingChanges = {};
+    updateSaveBar();
+    await loadConfig();
+  } catch (e) {
+    showToast('保存失败: ' + e.message, 'error');
+  }
+}
+
+/* ─── Delete Model ────────────────────────────────────────── */
+async function deleteModel(model) {
+  if (!confirm(`确认删除模型 "${model}" 的定价配置？`)) return;
+
+  // Remove from config: set pricing key to null/empty
+  const patch = {};
+  patch[`billing.pricing.${model}`] = null;
+
+  try {
+    const r = await fetch(ADMIN_API + '/config', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${_adminToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail?.message || e?.detail || r.statusText); }
+    showToast(`已删除模型 "${model}" 的定价`, 'success');
+    delete _pendingChanges[model];
+    updateSaveBar();
+    await loadConfig();
+  } catch (e) {
+    showToast('删除失败: ' + e.message, 'error');
+  }
+}
+
+/* ─── Add Model ───────────────────────────────────────────── */
+function openAddModel() {
+  document.getElementById('add-model').value = '';
+  document.getElementById('add-type').value = 'per_request';
+  document.getElementById('add-per-req').value = '0.40';
+  document.getElementById('add-input').value = '1.0';
+  document.getElementById('add-output').value = '3.0';
+  toggleAddFields();
+  document.getElementById('modal-add').classList.add('open');
+}
+
+function toggleAddFields() {
+  const type = document.getElementById('add-type').value;
+  document.getElementById('add-row-per-req').style.display = type === 'per_request' ? '' : 'none';
+  document.getElementById('add-row-input').style.display = type === 'token' ? '' : 'none';
+  document.getElementById('add-row-output').style.display = type === 'token' ? '' : 'none';
+}
+
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+async function doAddModel() {
+  const model = document.getElementById('add-model').value.trim();
+  if (!model) { showToast('请输入模型名称', 'error'); return; }
+  if (_pricingModels.find(m => m.model === model)) { showToast('该模型已存在', 'error'); return; }
+
+  const type = document.getElementById('add-type').value;
+  const patch = {};
+
+  if (type === 'per_request') {
+    const val = parseFloat(document.getElementById('add-per-req').value) || 0;
+    patch[`billing.pricing.${model}.per_request`] = val;
+  } else if (type === 'video') {
+    patch[`billing.pricing.${model}.is_video`] = true;
+  } else {
+    const inp = parseFloat(document.getElementById('add-input').value) || 0;
+    const out = parseFloat(document.getElementById('add-output').value) || 0;
+    patch[`billing.pricing.${model}.input`] = inp;
+    patch[`billing.pricing.${model}.output`] = out;
+  }
+
+  try {
+    const r = await fetch(ADMIN_API + '/config', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${_adminToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e?.detail?.message || e?.detail || r.statusText); }
+    showToast(`已添加模型 "${model}"`, 'success');
+    closeModal('modal-add');
+    await loadConfig();
+  } catch (e) {
+    showToast('添加失败: ' + e.message, 'error');
+  }
+}
+</script>
+</body>
+</html>

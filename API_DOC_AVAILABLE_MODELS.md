@@ -31,6 +31,8 @@
 | **`sd2-mini`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) | **2.00 元 / 次** | Seedance Mini 720p 多模态视频生成 |
 | **`seedance-2.0-720p`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) / 真人面部 | **4.00 元 / 次** | Seedance 2.0 满血版（人脸参考+合规素材） |
 | **`seedance-2.0-fast-720p`** | `720p` | `16:9` / `9:16` / `1:1` / `21:9` / `3:4` / `4:3` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) | **3.00 元 / 次** | Seedance 2.0 高速版视频生成 |
+| **`sora-v3-933-pro`** | `720p` | `16:9` / `9:16` / `4:3` / `3:4` / `1:1` / `21:9` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) | **3.00 元 / 次** | 933 真人视频生成（支持图片/视频/音频多模态参考） |
+| **`tejiasd2`** | `720p` | `16:9` / `9:16` / `4:3` / `3:4` / `1:1` / `21:9` | `5`–`15` 秒 | ✅ 图(9) / 视(3) / 音(3) | **3.00 元 / 次** | 特价真人视频生成（同 sora-v3-933-pro 渠道） |
 
 ---
 
@@ -153,6 +155,8 @@ curl -X POST "https://grokai.zhubo.asia/v1/videos" \
 
 Seedance 2.0 模型（`sd2-c7`、`sd2-mini`、`seedance-2.0-720p`、`seedance-2.0-fast-720p`）支持多张图片、视频与音频参考联动，提示词可通过 `@ImageN`、`@VideoN`、`@AudioN` 引用素材。
 
+> **注意**：`sora-v3-933-pro` / `tejiasd2` 模型也通过此接口调用，参数格式见下方 3.5 节。
+
 | 参数 | 类型 | 说明 |
 |---|---|---|
 | `model` | string | `sd2-c7`（1.5元/次）、`sd2-mini`（2.0元/次）、`seedance-2.0-720p`（4.0元/次）、`seedance-2.0-fast-720p`（3.0元/次） |
@@ -188,6 +192,51 @@ curl -X POST "https://grokai.zhubo.asia/v1/videos" \
     ],
     "compliance_enabled": true,
     "compliance_mode": "colored-pencil"
+  }'
+```
+
+---
+
+### 3.5 933 真人视频模型接口：`POST /v1/video/create`
+
+模型 `sora-v3-933-pro` 和 `tejiasd2` 支持真人面部保持、图片/视频/音频多模态参考。系统会自动补全必填参数 `resolution = "720p"`。
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `model` | string | 是 | `sora-v3-933-pro` 或 `tejiasd2` |
+| `prompt` | string | 是 | 视频描述提示词 |
+| `aspect_ratio` | string | 是 | `16:9` / `9:16` / `4:3` / `3:4` / `1:1` / `21:9` |
+| `seconds` | string / integer | 否 | 视频时长（秒），默认 `"15"` |
+| `image_url` | string | 否 | 主参考图 URL |
+| `reference_image_urls` | array | 否 | 额外参考图，与 `image_url` 合计最多 9 张 |
+| `reference_videos` | array | 否 | 参考视频 URL 列表，最多 3 个 |
+| `audio_url` / `audio_urls` | string / array | 否 | 参考音频 URL |
+
+#### cURL 示例：933 真人文生视频
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sora-v3-933-pro",
+    "prompt": "雨夜霓虹街道，镜头缓慢推进，电影感光影",
+    "aspect_ratio": "16:9",
+    "seconds": "15"
+  }'
+```
+
+#### cURL 示例：933 真人图生视频（图片+音频参考）
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "sora-v3-933-pro",
+    "prompt": "保持人物外貌一致，并参考音频节奏生成对应的视频画面",
+    "image_url": "https://example.com/input-image.jpg",
+    "audio_url": "https://example.com/reference-audio.mp3",
+    "aspect_ratio": "16:9",
+    "seconds": "15"
   }'
 ```
 

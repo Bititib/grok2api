@@ -66,6 +66,10 @@ async def admin_billing():
 async def admin_newapi():
     return _serve_html("admin/newapi.html")
 
+@router.get("/admin/pricing", include_in_schema=False)
+async def admin_pricing():
+    return _serve_html("admin/pricing.html")
+
 @router.get("/dashboard", include_in_schema=False)
 async def user_dashboard():
     return _serve_html("dashboard.html")
