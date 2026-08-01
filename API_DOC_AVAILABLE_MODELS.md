@@ -43,6 +43,12 @@
 | **`omni-watermark-remover`** | 去水印 | **0.10 元 / 次** | AI 智能视频/图片去水印 |
 | **`omni-moderation-latest`** | 内容审核 | **0.02 元 / 次** | 文本/图像多模态安全合规审核 |
 
+### 2.3 图像生成模型
+
+| 模型名称 | 应用类型 | 计费单价 | 功能说明 |
+|---|---|---|---|
+| **`gpt-image-2`** | 图像生成/重绘 | **0.12 元 / 次** | Pidoi 渠道高品质图片生成与重绘接口 |
+
 ---
 
 ## 3. 接口调用指南
@@ -237,6 +243,31 @@ curl -X POST "https://grokai.zhubo.asia/v1/video/create" \
     "audio_url": "https://example.com/reference-audio.mp3",
     "aspect_ratio": "16:9",
     "seconds": "15"
+  }'
+```
+
+### 3.6 图像生成接口：`POST /v1/images/generations`
+
+调用该接口向 Pidoi 渠道请求生成高品质图像。支持的参数如下：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `model` | string | 是 | 使用 `gpt-image-2` |
+| `prompt` | string | 是 | 要生成图像的详细描述词 |
+| `size` | string | 否 | 图像尺寸，默认 `"1024x1024"` |
+| `quality` | string | 否 | 图像质量，如 `"high"`、`"standard"` |
+| `n` | integer | 否 | 生成张数，目前固定为 `1` |
+| `response_format` | string | 否 | 返回格式类型，通常支持 `"url"` 或是 `"b64_json"` |
+
+#### cURL 示例：文生图
+```bash
+curl -X POST "https://grokai.zhubo.asia/v1/images/generations" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-image-2",
+    "prompt": "一个极简主义的现代书桌，上面放着一台笔记本电脑和咖啡，柔和的晨光",
+    "size": "1024x1024"
   }'
 ```
 
