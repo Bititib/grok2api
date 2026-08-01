@@ -711,7 +711,7 @@ async def video_create(*, body: dict[str, Any]) -> dict[str, Any]:
     """Forward a video creation request via /v1/video/create or /v1/videos and return encoded ID."""
     model = body.get("model", "unknown")
     chan = _select_channel(model)
-    if model.startswith("sd2-") or model.startswith("seedance"):
+    if model.startswith("sd2-") or model.startswith("seedance") or "sora" in model.lower():
         urls = [
             f"{chan.base_url}/v1/videos",
             f"{chan.base_url}/v1/video/create",

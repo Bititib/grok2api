@@ -265,5 +265,11 @@ per_request = 4.00
 [billing.pricing.seedance-2.0-fast-720p]
 per_request = 3.00
 
+[billing.pricing.tejiasd2]
+per_request = 3.00
+
+[billing.pricing.sora-v3-933-pro]
+per_request = 5.00
 
 
+ 

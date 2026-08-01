@@ -339,6 +339,10 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
         except (ValueError, TypeError):
             pass
 
+    if "sora" in model.lower() or "tejiasd" in model.lower():
+        if "resolution" not in body:
+            body["resolution"] = "720p"
+
     if model == "grok-imagine-video-1.5-preview":
         if urls:
             body["images"] = [urls[0]]

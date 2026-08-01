@@ -78,7 +78,8 @@ base_url = "https://pidoi.com"
 api_key = "sk-jONZxfxNTSIMij2f7CgUIIdZjQkCmadK8nG51dHa3WcZMvgG"
 timeout = 180
 models = [
-    "tejiasd2"
+    "tejiasd2",
+    "sora-v3-933-pro"
 ]
 enabled = true
 
@@ -111,6 +112,10 @@ per_request = 3.00
 
 [billing.pricing.tejiasd2]
 per_request = 3.00
+
+[billing.pricing.sora-v3-933-pro]
+per_request = 3.00
+
 
 
 
