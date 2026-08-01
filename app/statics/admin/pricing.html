@@ -171,6 +171,7 @@
         </select>
       </div>
       <div class="dialog-field" id="add-row-per-req"><span class="dialog-label">单价 (元/次)</span><input id="add-per-req" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="0.40" step="0.01" min="0"></div>
+      <div class="dialog-field" id="add-row-video-1080" style="display:none"><span class="dialog-label">1080p (元/秒)</span><input id="add-video-1080" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="0.20" step="0.01" min="0"></div>
       <div class="dialog-field" id="add-row-video-720" style="display:none"><span class="dialog-label">720p (元/秒)</span><input id="add-video-720" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="0.12" step="0.01" min="0"></div>
       <div class="dialog-field" id="add-row-video-480" style="display:none"><span class="dialog-label">480p (元/秒)</span><input id="add-video-480" type="number" class="input" style="flex:1;height:32px;font-size:12px" value="0.02" step="0.01" min="0"></div>
     </div>
@@ -245,6 +246,7 @@ async function loadConfig() {
     } else if (cfg.is_video) {
       entry.type = 'video';
       entry.is_video = true;
+      entry.video_cost_per_second_1080p = parseFloat(cfg.video_cost_per_second_1080p !== undefined ? cfg.video_cost_per_second_1080p : 0.0);
       entry.video_cost_per_second_720p = parseFloat(cfg.video_cost_per_second_720p !== undefined ? cfg.video_cost_per_second_720p : 0.03);
       entry.video_cost_per_second_480p = parseFloat(cfg.video_cost_per_second_480p !== undefined ? cfg.video_cost_per_second_480p : 0.02);
     } else if (cfg.input !== undefined || cfg.output !== undefined) {
@@ -299,11 +301,14 @@ function renderTable() {
       const changed = _pendingChanges[m.model]?.per_request !== undefined;
       priceCell = `<input type="number" class="price-input ${changed ? 'changed' : ''}" value="${v}" step="0.01" min="0" data-model="${m.model}" data-field="per_request" onchange="onPriceChange(this)"><span class="price-unit">元/次</span>`;
     } else if (m.type === 'video') {
+      const v1080 = _pendingChanges[m.model]?.video_cost_per_second_1080p ?? m.video_cost_per_second_1080p;
       const v720 = _pendingChanges[m.model]?.video_cost_per_second_720p ?? m.video_cost_per_second_720p;
       const v480 = _pendingChanges[m.model]?.video_cost_per_second_480p ?? m.video_cost_per_second_480p;
+      const c1080 = _pendingChanges[m.model]?.video_cost_per_second_1080p !== undefined;
       const c720 = _pendingChanges[m.model]?.video_cost_per_second_720p !== undefined;
       const c480 = _pendingChanges[m.model]?.video_cost_per_second_480p !== undefined;
-      priceCell = `<input type="number" class="price-input ${c720 ? 'changed' : ''}" value="${v720}" step="0.01" min="0" data-model="${m.model}" data-field="video_cost_per_second_720p" onchange="onPriceChange(this)" style="width:65px"><span class="price-unit">720p/秒</span>` +
+      priceCell = `<input type="number" class="price-input ${c1080 ? 'changed' : ''}" value="${v1080}" step="0.01" min="0" data-model="${m.model}" data-field="video_cost_per_second_1080p" onchange="onPriceChange(this)" style="width:65px"><span class="price-unit">1080p/秒</span>` +
+                  `<input type="number" class="price-input ${c720 ? 'changed' : ''}" value="${v720}" step="0.01" min="0" data-model="${m.model}" data-field="video_cost_per_second_720p" onchange="onPriceChange(this)" style="width:65px;margin-left:8px"><span class="price-unit">720p/秒</span>` +
                   `<input type="number" class="price-input ${c480 ? 'changed' : ''}" value="${v480}" step="0.01" min="0" data-model="${m.model}" data-field="video_cost_per_second_480p" onchange="onPriceChange(this)" style="width:65px;margin-left:8px"><span class="price-unit">480p/秒</span>`;
     } else {
       const iv = _pendingChanges[m.model]?.input ?? m.input;
@@ -428,6 +433,7 @@ function openAddModel() {
 function toggleAddFields() {
   const type = document.getElementById('add-type').value;
   document.getElementById('add-row-per-req').style.display = type === 'per_request' ? '' : 'none';
+  document.getElementById('add-row-video-1080').style.display = type === 'video' ? '' : 'none';
   document.getElementById('add-row-video-720').style.display = type === 'video' ? '' : 'none';
   document.getElementById('add-row-video-480').style.display = type === 'video' ? '' : 'none';
 }
@@ -447,6 +453,7 @@ async function doAddModel() {
     patch[`billing.pricing.${model}.per_request`] = val;
   } else if (type === 'video') {
     patch[`billing.pricing.${model}.is_video`] = true;
+    patch[`billing.pricing.${model}.video_cost_per_second_1080p`] = parseFloat(document.getElementById('add-video-1080').value) || 0.20;
     patch[`billing.pricing.${model}.video_cost_per_second_720p`] = parseFloat(document.getElementById('add-video-720').value) || 0.12;
     patch[`billing.pricing.${model}.video_cost_per_second_480p`] = parseFloat(document.getElementById('add-video-480').value) || 0.02;
   } else {
