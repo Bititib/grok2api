@@ -631,6 +631,160 @@ async def image_edits(
             return await _cache_image_response_if_needed(res, response_format, prompt=prompt, model=model)
 
 
+async def _resolve_url_to_bytes(url_or_data: str) -> tuple[bytes, str, str]:
+    import urllib.parse
+    import mimetypes
+    import base64
+    import binascii
+    import aiohttp
+    from app.platform.storage import image_files_dir, video_files_dir
+    from app.platform.errors import AppError, ErrorKind
+
+    # 1. Base64 Data URI
+    if url_or_data.startswith("data:"):
+        header, data = url_or_data.split(",", 1)
+        mime = header.split(";", 1)[0].replace("data:", "")
+        ext = mimetypes.guess_extension(mime) or ".jpg"
+        raw_data = base64.b64decode(data)
+        return raw_data, f"upload{ext}", mime
+
+    # 2. Local gateway URL check
+    parsed = urllib.parse.urlparse(url_or_data)
+    path = parsed.path
+    query = urllib.parse.parse_qs(parsed.query)
+    
+    if "files/image" in path or "files/video" in path:
+        file_id = query.get("id", [None])[0]
+        if file_id:
+            if "image" in path:
+                img_dir = image_files_dir()
+                for ext in (".jpg", ".png"):
+                    local_path = img_dir / f"{file_id}{ext}"
+                    if local_path.exists():
+                        mime = "image/png" if ext == ".png" else "image/jpeg"
+                        return local_path.read_bytes(), f"{file_id}{ext}", mime
+            else:
+                local_path = video_files_dir() / f"{file_id}.mp4"
+                if local_path.exists():
+                    return local_path.read_bytes(), f"{file_id}.mp4", "video/mp4"
+
+    # 3. Remote URL
+    fetch_url = url_or_data
+    if not fetch_url.startswith("http://") and not fetch_url.startswith("https://"):
+        from app.platform.config.snapshot import get_config as _cfg
+        app_url = _cfg().get_str("app.app_url", "").rstrip("/")
+        if app_url:
+            fetch_url = app_url + ("" if fetch_url.startswith("/") else "/") + fetch_url
+        else:
+            raise AppError(f"Relative URL {url_or_data!r} cannot be resolved without app.app_url configured", ErrorKind.VALIDATION)
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(fetch_url, timeout=60) as resp:
+            resp.raise_for_status()
+            raw_data = await resp.read()
+            content_type = resp.headers.get("Content-Type", "")
+            
+            url_path = urllib.parse.urlparse(fetch_url).path
+            filename = url_path.split("/")[-1] or "upload"
+            mime = content_type or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            
+            return raw_data, filename, mime
+
+
+async def _upload_to_sudashui(raw_data: bytes, filename: str, mime: str, api_key: str) -> str:
+    import aiohttp
+    
+    url = "https://files.sudashuiapi.com"
+    headers = {"Authorization": f"Bearer {api_key}"}
+    
+    data = aiohttp.FormData()
+    data.add_field("file", raw_data, filename=filename, content_type=mime)
+    
+    logger.info("Uploading asset to sudashui: filename={} mime={} size={}", filename, mime, len(raw_data))
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, data=data, headers=headers) as resp:
+            resp.raise_for_status()
+            res = await resp.json()
+            if isinstance(res, dict) and "url" in res:
+                return str(res["url"])
+            raise ValueError(f"Invalid upload response from sudashui: {res}")
+
+
+async def _ensure_sudashui_url(url_or_data: str, api_key: str) -> str:
+    if not isinstance(url_or_data, str) or not url_or_data.strip():
+        return url_or_data
+        
+    val = url_or_data.strip()
+    if val.startswith("https://files.sudashuiapi.com"):
+        return val
+        
+    try:
+        raw_data, filename, mime = await _resolve_url_to_bytes(val)
+        new_url = await _upload_to_sudashui(raw_data, filename, mime, api_key)
+        logger.info("Successfully converted asset to sudashui URL: {} -> {}", val[:60], new_url)
+        return new_url
+    except Exception as e:
+        logger.error("Failed to automatically upload asset to sudashui (will pass original): error={}", e)
+        return val
+
+
+async def _prepare_sudashui_assets(body: dict[str, Any], chan: Channel) -> None:
+    import orjson
+    api_key = chan.api_key
+    
+    # 1. Process metadata.payload (if it is a JSON string)
+    metadata = body.get("metadata")
+    if isinstance(metadata, dict):
+        payload_str = metadata.get("payload")
+        if isinstance(payload_str, str) and payload_str.strip():
+            try:
+                payload = orjson.loads(payload_str)
+                if isinstance(payload, dict):
+                    if "imageUrls" in payload and isinstance(payload["imageUrls"], list):
+                        payload["imageUrls"] = [
+                            await _ensure_sudashui_url(u, api_key) for u in payload["imageUrls"]
+                        ]
+                    if "videoUrls" in payload and isinstance(payload["videoUrls"], list):
+                        payload["videoUrls"] = [
+                            await _ensure_sudashui_url(u, api_key) for u in payload["videoUrls"]
+                        ]
+                    if "audioUrls" in payload and isinstance(payload["audioUrls"], list):
+                        payload["audioUrls"] = [
+                            await _ensure_sudashui_url(u, api_key) for u in payload["audioUrls"]
+                        ]
+                    for field in ("firstFrameUrl", "lastFrameUrl"):
+                        if field in payload and isinstance(payload[field], str):
+                            payload[field] = await _ensure_sudashui_url(payload[field], api_key)
+                    
+                    metadata["payload"] = orjson.dumps(payload).decode("utf-8")
+            except Exception as e:
+                logger.error("Failed to parse metadata.payload JSON during sudashui asset preparation: {}", e)
+                
+        # 2. Process metadata.content (official 2 format)
+        content = metadata.get("content")
+        if isinstance(content, list):
+            for item in content:
+                if isinstance(item, dict):
+                    item_type = item.get("type")
+                    if item_type == "image_url" and isinstance(item.get("image_url"), dict):
+                        img_url = item["image_url"].get("url")
+                        if img_url:
+                            item["image_url"]["url"] = await _ensure_sudashui_url(img_url, api_key)
+                    elif item_type == "audio_url" and isinstance(item.get("audio_url"), dict):
+                        aud_url = item["audio_url"].get("url")
+                        if aud_url:
+                            item["audio_url"]["url"] = await _ensure_sudashui_url(aud_url, api_key)
+                            
+    # 3. Process top-level standard list/fields
+    for field in ("image_refs", "video_refs", "audio_refs", "images"):
+        if field in body and isinstance(body[field], list):
+            body[field] = [await _ensure_sudashui_url(u, api_key) for u in body[field]]
+            
+    for field in ("input_reference",):
+        if field in body and isinstance(body[field], str):
+            body[field] = await _ensure_sudashui_url(body[field], api_key)
+
+
 # ---------------------------------------------------------------------------
 # Video Generations & Editing
 # ---------------------------------------------------------------------------
@@ -642,6 +796,8 @@ async def video_generations(
     """Forward a video generation request and return encoded stateless task ID."""
     model = body.get("model", "unknown")
     chan = _select_channel(model)
+    if "sudashuiapi.com" in chan.base_url:
+        await _prepare_sudashui_assets(body, chan)
     url = f"{chan.base_url}/v1/video/generations"
 
     logger.info(
@@ -734,6 +890,8 @@ async def video_create(*, body: dict[str, Any]) -> dict[str, Any]:
     """Forward a video creation request via /v1/video/create or /v1/videos and return encoded ID."""
     model = body.get("model", "unknown")
     chan = _select_channel(model)
+    if "sudashuiapi.com" in chan.base_url:
+        await _prepare_sudashui_assets(body, chan)
     if model.startswith("sd2-") or model.startswith("seedance") or "sora" in model.lower():
         urls = [
             f"{chan.base_url}/v1/videos",
