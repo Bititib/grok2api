@@ -883,6 +883,7 @@ def is_third_party_video_model(model: str) -> bool:
         or model.startswith("sd2-")
         or model.startswith("seedance")
         or model.startswith("sdas-")
+        or model.startswith("ld-")
     )
 
 
@@ -955,7 +956,7 @@ async def video_query(video_id: str) -> dict[str, Any]:
     async with aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=min(chan.timeout, 30))
     ) as session:
-        if (model and (model.startswith("sd2-") or model.startswith("seedance") or model.startswith("sdas-"))) or "sd2" in channel_id or "seedance" in channel_id or "sdas" in channel_id:
+        if (model and (model.startswith("sd2-") or model.startswith("seedance") or model.startswith("sdas-") or model.startswith("ld-"))) or "sd2" in channel_id or "seedance" in channel_id or "sdas" in channel_id or "ld-" in channel_id:
             url_path = f"{chan.base_url}/v1/videos/{original_id}"
             logger.info("newapi video_query proxy for seedance model: url={}", url_path)
             try:
