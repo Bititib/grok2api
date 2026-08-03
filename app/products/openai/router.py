@@ -315,6 +315,34 @@ async def _extract_images_from_payload(payload: Any) -> list[str]:
     return urls
 
 
+def _ensure_gateway_public_url(val: str) -> str:
+    if not isinstance(val, str) or not val.strip():
+        return val
+    v = val.strip()
+    if not v.startswith("data:"):
+        return v
+
+    import base64
+    import uuid
+    from app.platform.storage import save_local_image
+    from app.platform.config.snapshot import get_config as _cfg
+
+    try:
+        header, data = v.split(",", 1)
+        mime = header.split(";", 1)[0].replace("data:", "")
+        raw_data = base64.b64decode(data)
+        file_id = str(uuid.uuid4())
+        save_local_image(raw_data, mime, file_id)
+        
+        app_url = _cfg().get_str("app.app_url", "").rstrip("/")
+        if not app_url:
+            app_url = "http://localhost:8000" # fallback
+        return f"{app_url}/v1/files/image?id={file_id}"
+    except Exception as e:
+        logger.error("Failed to convert base64 data to local gateway URL: {}", e)
+        return v
+
+
 def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> None:
     model = body.get("model", "")
 
@@ -348,7 +376,7 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             if len(urls) > 1 and not body.get("reference_image_urls") and not body.get("reference_images"):
                 body["reference_image_urls"] = urls[1:]
 
-    if model == "grok-imagine-video-1.5-preview":
+    elif model == "grok-imagine-video-1.5-preview":
         if urls:
             body["images"] = [urls[0]]
         else:
@@ -380,6 +408,43 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             body["input_reference"] = urls[0]
         if urls and "images" not in body:
             body["images"] = urls[:9]
+    elif model.startswith("sd2.0-") or model.startswith("video-"):
+        # Map to newtoken.club format
+        img_list = []
+        if "image_refs" in body and isinstance(body["image_refs"], list):
+            img_list = body.pop("image_refs")
+        elif "extra_images" in body and isinstance(body["extra_images"], list):
+            img_list = body.pop("extra_images")
+        elif "images" in body and isinstance(body["images"], list):
+            img_list = body.pop("images")
+        else:
+            img_list = [u for u in urls if ".mp3" not in u.lower() and ".wav" not in u.lower() and ".mp4" not in u.lower()]
+
+        # Convert Base64 data URIs to gateway public URLs
+        img_list = [_ensure_gateway_public_url(u) for u in img_list]
+
+        if img_list:
+            body["image_url"] = img_list[0]
+            if len(img_list) > 1:
+                body["extra_images"] = img_list[1:]
+
+        if "video_refs" in body and isinstance(body["video_refs"], list):
+            body["extra_videos"] = [_ensure_gateway_public_url(v) for v in body.pop("video_refs")]
+        elif "extra_videos" in body and isinstance(body["extra_videos"], list):
+            body["extra_videos"] = [_ensure_gateway_public_url(v) for v in body["extra_videos"]]
+        else:
+            video_list = [u for u in urls if ".mp4" in u.lower()]
+            if video_list:
+                body["extra_videos"] = [_ensure_gateway_public_url(v) for v in video_list]
+
+        if "audio_refs" in body and isinstance(body["audio_refs"], list):
+            body["extra_audios"] = [_ensure_gateway_public_url(a) for a in body.pop("audio_refs")]
+        elif "extra_audios" in body and isinstance(body["extra_audios"], list):
+            body["extra_audios"] = [_ensure_gateway_public_url(a) for a in body["extra_audios"]]
+        else:
+            audio_list = [u for u in urls if ".mp3" in u.lower() or ".wav" in u.lower()]
+            if audio_list:
+                body["extra_audios"] = [_ensure_gateway_public_url(a) for a in audio_list]
     else:
         body["images"] = urls
         if urls:
