@@ -1302,7 +1302,7 @@ async def video_generations_create(request: Request):
             elif pricing.is_video:
                 from app.control.billing.pricing import video_cost
                 duration = body.get("duration") or body.get("seconds") or 6
-                raw_res = str(body.get("resolution") or "").strip().lower()
+                raw_res = str(body.get("resolution") or "").strip().lower() or model.lower()
                 if "1080" in raw_res:
                     res = "1080p"
                 elif "480" in raw_res:
@@ -1356,7 +1356,7 @@ async def video_generations_create(request: Request):
                 video_sec = int(duration_val)
             except (ValueError, TypeError):
                 video_sec = 6
-            raw_res = str(body.get("resolution") or "").strip().lower()
+            raw_res = str(body.get("resolution") or "").strip().lower() or model.lower()
             if "1080" in raw_res:
                 video_res = "1080p"
             elif "480" in raw_res:

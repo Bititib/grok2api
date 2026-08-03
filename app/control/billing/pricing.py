@@ -81,6 +81,8 @@ def video_cost(seconds: int, resolution: str = "720p", model: str | None = None)
     if model:
         # Try model specific pricing first
         rate = cfg.get_float(f"billing.pricing.{model}.video_cost_per_second_{resolution}", -1.0)
+        if rate < 0:
+            rate = cfg.get_float(f"billing.pricing.{model}.video_cost_per_second", -1.0)
         if rate >= 0:
             return round(seconds * rate, 4)
 
