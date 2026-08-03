@@ -269,9 +269,9 @@ class BillingRepository:
         if cost <= 0.0:
             return 0.0
 
-        # Update log to status='failed'
+        # Update log to status='failed' and set cost to 0.0
         await self.db.execute(
-            "UPDATE usage_logs SET status = 'failed', error_message = 'Upstream task failed' WHERE request_id = ?",
+            "UPDATE usage_logs SET status = 'failed', cost = 0.0, error_message = 'Upstream task failed' WHERE request_id = ?",
             (request_id,),
         )
 

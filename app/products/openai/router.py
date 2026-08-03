@@ -984,7 +984,7 @@ async def videos_create(request: Request):
 @router.get(
     "/videos/{video_id}", tags=[_TAG_VIDEOS], dependencies=[Depends(verify_api_key)]
 )
-async def videos_retrieve(video_id: str):
+async def videos_retrieve(video_id: str, request: Request):
     from .video import retrieve
 
     try:
@@ -998,6 +998,17 @@ async def videos_retrieve(video_id: str):
     if is_newapi_enabled():
         try:
             result = await newapi_video_query(video_id)
+            billing_key = getattr(request.state, "billing_key", None)
+            if billing_key is not None and _is_video_failed(result):
+                from app.control.billing.service import get_billing_service
+                svc = get_billing_service()
+                if svc is not None:
+                    try:
+                        refunded = await svc.refund_failed_request(video_id)
+                        if refunded > 0:
+                            logger.info("Refunded ${} for failed video retrieve task {}", refunded, video_id)
+                    except Exception as refund_exc:
+                        logger.warning("Failed to refund for retrieve task {}: {}", video_id, refund_exc)
             return JSONResponse(result)
         except Exception as exc:
             logger.debug("newapi video_query fallback failed: id={} error={}", video_id, exc)
