@@ -442,15 +442,13 @@ _COMPLETED_TASK_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _is_final_status(res: dict[str, Any]) -> bool:
-    status = str(res.get("status") or "").lower()
-    if status in ("completed", "failed", "success", "finished"):
-        return True
     nested_data = res.get("data")
-    if isinstance(nested_data, dict):
+    if isinstance(nested_data, dict) and "status" in nested_data:
         nested_status = str(nested_data.get("status") or "").lower()
-        if nested_status in ("completed", "failed", "success", "finished"):
-            return True
-    return False
+        return nested_status in ("completed", "failed", "success", "finished")
+
+    status = str(res.get("status") or "").lower()
+    return status in ("completed", "failed", "success", "finished")
 
 
 async def _cache_media_if_needed(url: str, media_type: str, prompt: str | None = None, model: str | None = None) -> str:
@@ -471,11 +469,17 @@ async def _cache_media_if_needed(url: str, media_type: str, prompt: str | None =
         import uuid
         import urllib.parse
         from app.platform.storage import save_local_image, save_local_video
+        from aiohttp_socks import ProxyConnector
         
         file_id = str(uuid.uuid4())
         logger.info("Caching third-party {} from {}", media_type, url)
         
-        async with aiohttp.ClientSession() as session:
+        proxy_url = cfg.get_str("proxy.egress.proxy_url", "")
+        connector = None
+        if proxy_url:
+            connector = ProxyConnector.from_url(proxy_url)
+        
+        async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(url, timeout=120) as resp:
                 resp.raise_for_status()
                 raw = await resp.read()

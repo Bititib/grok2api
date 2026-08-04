@@ -969,10 +969,54 @@ async def videos_create(request: Request):
         # Standardize references for NewAPI
         _standardize_newapi_video_body(body, urls)
 
+        # Pre-hold billing check for third-party models
+        held_amount = 0.0
+        if billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            from app.control.billing.pricing import get_pricing, video_cost
+
+            svc = get_billing_service()
+            if svc is not None:
+                pricing = get_pricing(model)
+                if pricing.per_request > 0:
+                    held_amount = pricing.per_request
+                elif pricing.is_video:
+                    raw_res = str(resolution_name or resolution or "720p").strip().lower()
+                    if "480" in raw_res:
+                        res = "480p"
+                    else:
+                        res = "720p"
+                    try:
+                        video_sec = int(seconds)
+                    except (ValueError, TypeError):
+                        video_sec = 6
+                    held_amount = video_cost(video_sec, resolution=res, model=model)
+                else:
+                    held_amount = 0.04
+
+                if held_amount > 0:
+                    ok = await svc.hold_balance(billing_key.key, held_amount)
+                    if not ok:
+                        return JSONResponse(
+                            {
+                                "error": {
+                                    "message": "Insufficient balance",
+                                    "type": "billing_error",
+                                    "code": "insufficient_balance",
+                                }
+                            },
+                            status_code=402,
+                        )
+
         _start = _time.monotonic()
         try:
             result = await newapi_video_create(body=body)
         except Exception as exc:
+            if held_amount > 0 and billing_key is not None:
+                from app.control.billing.service import get_billing_service
+                svc = get_billing_service()
+                if svc is not None:
+                    await svc.refund_hold(billing_key.key, held_amount)
             logger.exception(
                 "newapi video_create proxy failed: model={} error={}", model, exc,
             )
@@ -1001,6 +1045,7 @@ async def videos_create(request: Request):
                         video_resolution=resolution_name or resolution or "720p",
                         request_id=str(task_id),
                         duration_ms=duration_ms,
+                        held_amount=held_amount,
                     )
                 )
 
@@ -1479,9 +1524,53 @@ async def video_create_endpoint(request: Request):
     urls = await _extract_images_from_payload(body)
     _standardize_newapi_video_body(body, urls)
 
+    # Pre-hold billing check
+    held_amount = 0.0
+    if billing_key is not None:
+        from app.control.billing.service import get_billing_service
+        from app.control.billing.pricing import get_pricing, video_cost
+
+        svc = get_billing_service()
+        if svc is not None:
+            pricing = get_pricing(model)
+            if pricing.per_request > 0:
+                held_amount = pricing.per_request
+            elif pricing.is_video:
+                raw_size = str(body.get("size", "")).strip().lower()
+                if raw_size in ("480p", "sd"):
+                    video_res = "480p"
+                else:
+                    video_res = "720p"
+                try:
+                    video_sec = int(body.get("seconds", 6))
+                except (ValueError, TypeError):
+                    video_sec = 6
+                held_amount = video_cost(video_sec, resolution=video_res, model=model)
+            else:
+                held_amount = 0.04
+
+            if held_amount > 0:
+                ok = await svc.hold_balance(billing_key.key, held_amount)
+                if not ok:
+                    return JSONResponse(
+                        {
+                            "error": {
+                                "message": "Insufficient balance",
+                                "type": "billing_error",
+                                "code": "insufficient_balance",
+                            }
+                        },
+                        status_code=402,
+                    )
+
     try:
         result = await newapi_video_create(body=body)
     except Exception as exc:
+        if held_amount > 0 and billing_key is not None:
+            from app.control.billing.service import get_billing_service
+            svc = get_billing_service()
+            if svc is not None:
+                await svc.refund_hold(billing_key.key, held_amount)
         logger.exception("newapi video_create failed: model={} error={}", model, exc)
         return JSONResponse(
             {"error": {"message": sanitize_exception(exc), "type": "server_error"}},
@@ -1515,6 +1604,7 @@ async def video_create_endpoint(request: Request):
                     video_resolution=video_res,
                     request_id=str(task_id),
                     duration_ms=duration_ms,
+                    held_amount=held_amount,
                 )
             )
 
