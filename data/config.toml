@@ -84,11 +84,24 @@ models = [
 enabled = true
 
 [[providers.newapi.channels]]
+id = "meinianda_image"
+name = "美年达 Image-2 主渠道"
+base_url = "https://meinianda.top"
+api_key = "sk-YOUR_MEINIANDA_API_KEY"  # 请替换为您在 meinianda.top 生成的 API Key
+timeout = 180
+priority = 0
+models = [
+    "gpt-image-2"
+]
+enabled = true
+
+[[providers.newapi.channels]]
 id = "pidoi_image"
-name = "Pidoi 图像生成渠道"
+name = "Pidoi 图像生成备用渠道"
 base_url = "https://pidoi.com"
 api_key = "sk-EWZUHbYAtE0T9aCqb2HeMbq8JBJk7ycaw731mFBWPe0CBLJ0"
 timeout = 180
+priority = 10
 models = [
     "gpt-image-2"
 ]
