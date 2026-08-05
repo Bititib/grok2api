@@ -94,6 +94,29 @@ models = [
 ]
 enabled = true
 
+[[providers.newapi.channels]]
+id = "sudashui"
+name = "速大水 API 渠道"
+base_url = "https://api.sudashuiapi.com"
+api_key = "sk-SDeSvy1BIevUNsUWLUFJJiw5xapk1zxP0fAxjgvZZ0sYYpDy"
+timeout = 180
+models = [
+    "ld-sdas-h3-501-2k"
+]
+enabled = true
+
+[[providers.newapi.channels]]
+id = "newtoken"
+name = "NewToken 视频渠道"
+base_url = "https://www.newtoken.club"  # 请替换为真实的 NewToken API 基础地址
+api_key = "sk-vjYBrox7zY41np0gg6GOVtuXQAZjFGFlK85zKYudlTwXJWkh"
+timeout = 180
+models = [
+    "sd2.0-480p",
+    "sd2.0-fast-480p"
+]
+enabled = true
+
 [billing.pricing.veo31-fast]
 per_request = 0.60
 
@@ -129,6 +152,17 @@ per_request = 3.00
 
 [billing.pricing.gpt-image-2]
 per_request = 0.12
+
+[billing.pricing."ld-sdas-h3-501-2k"]
+per_request = 3.50
+
+[billing.pricing."sd2.0-480p"]
+is_video = true
+video_cost_per_second = 0.35
+
+[billing.pricing."sd2.0-fast-480p"]
+is_video = true
+video_cost_per_second = 0.25
 
 
 

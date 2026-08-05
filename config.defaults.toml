@@ -195,6 +195,27 @@ default_output_price = 3.0
 # 图片模型按次计价
 default_image_price = 0.04
 
+# 多渠道配置列表（支持同名模型 + 优先级 failover）
+# priority 值越小优先级越高，主渠道失败后自动尝试下一个。
+# 示例配置：
+# [[providers.newapi.channels]]
+# id = "image2_primary"
+# name = "Image-2 主渠道"
+# base_url = "https://primary-api.example.com"
+# api_key = "sk-primary-xxxxx"
+# models = ["gpt-image-2"]
+# priority = 0
+# timeout = 120
+#
+# [[providers.newapi.channels]]
+# id = "image2_backup"
+# name = "Image-2 备用渠道"
+# base_url = "https://backup-api.example.com"
+# api_key = "sk-backup-xxxxx"
+# models = ["gpt-image-2"]
+# priority = 10
+# timeout = 120
+
 
 # ==================== 计费配置 ====================
 [billing]

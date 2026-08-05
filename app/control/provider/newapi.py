@@ -38,6 +38,7 @@ class Channel:
     models: list[str]
     enabled: bool = True
     timeout: float = 120.0
+    priority: int = 0       # Lower value = higher priority; 0 is highest
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +81,7 @@ def _get_all_channels() -> list[Channel]:
             api_key = str(item.get("api_key") or "").strip()
             models = [str(m).strip() for m in item.get("models", []) if m]
             timeout = float(item.get("timeout") or 120.0)
+            priority = int(item.get("priority", 0))
 
             if cid and base_url and api_key and enabled:
                 channels.append(
@@ -91,6 +93,7 @@ def _get_all_channels() -> list[Channel]:
                         models=models,
                         enabled=True,
                         timeout=timeout,
+                        priority=priority,
                     )
                 )
 
@@ -135,6 +138,35 @@ def _select_channel_by_id(channel_id: str) -> Channel:
         return channels[0]
 
     raise RuntimeError(f"Channel {channel_id!r} not found and no default channel available")
+
+
+def _select_channels(model: str) -> list["Channel"]:
+    """Return ALL channels that can serve *model*, sorted by priority (lowest value first).
+
+    Used by image_generations / image_edits for priority-based failover.
+    The default channel (providers.newapi.base_url) is always appended as
+    the lowest-priority fallback so existing configurations keep working.
+    """
+    channels = _get_all_channels()
+
+    # 1. Collect all channels whose models list explicitly contains this model
+    matched = [c for c in channels if c.id != "default" and model in c.models]
+
+    # 2. Sort by priority (lower value = higher priority)
+    matched.sort(key=lambda c: c.priority)
+
+    # 3. Always append the default channel as the lowest-priority fallback
+    #    (it acts as a catch-all for models not explicitly assigned to a channel,
+    #     including the current gpt-image-2 served via Pidoi).
+    default = next((c for c in channels if c.id == "default"), None)
+    if default and default not in matched:
+        matched.append(default)
+
+    # 4. Last resort: any enabled channel
+    if not matched and channels:
+        matched.append(channels[0])
+
+    return matched
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -562,9 +594,10 @@ async def image_generations(
     response_format: str = "url",
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Forward an image generation request to the matched channel."""
-    chan = _select_channel(model)
-    url = f"{chan.base_url}/v1/images/generations"
+    """Forward an image generation request with priority-based channel failover."""
+    channels = _select_channels(model)
+    if not channels:
+        raise RuntimeError(f"No channels available for model {model!r}")
 
     payload: dict[str, Any] = {
         "model": model,
@@ -577,16 +610,32 @@ async def image_generations(
         if value is not None and key not in payload:
             payload[key] = value
 
-    logger.info("newapi image proxy: model={} url={} channel={}", model, url, chan.id)
+    last_exc: Exception | None = None
+    for idx, chan in enumerate(channels):
+        url = f"{chan.base_url}/v1/images/generations"
+        logger.info(
+            "newapi image proxy: model={} url={} channel={} (priority={}, {}/{})",
+            model, url, chan.id, chan.priority, idx + 1, len(channels),
+        )
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=chan.timeout)
+            ) as session:
+                async with session.post(url, json=payload, headers=_headers(chan.api_key)) as resp:
+                    resp.raise_for_status()
+                    res = await resp.json()
+                    _check_json_error(res)
+                    return await _cache_image_response_if_needed(res, response_format, prompt=prompt, model=model)
+        except Exception as exc:
+            logger.warning(
+                "newapi image channel {} failed (priority={}, {}/{}): {}",
+                chan.id, chan.priority, idx + 1, len(channels), exc,
+            )
+            last_exc = exc
+            # Continue to the next channel
 
-    async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=chan.timeout)
-    ) as session:
-        async with session.post(url, json=payload, headers=_headers(chan.api_key)) as resp:
-            resp.raise_for_status()
-            res = await resp.json()
-            _check_json_error(res)
-            return await _cache_image_response_if_needed(res, response_format, prompt=prompt, model=model)
+    # All channels exhausted
+    raise last_exc or RuntimeError(f"All channels failed for model {model!r}")
 
 
 async def image_edits(
@@ -599,9 +648,10 @@ async def image_edits(
     response_format: str = "url",
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Forward an image edit request to the matched channel."""
-    chan = _select_channel(model)
-    url = f"{chan.base_url}/v1/images/edits"
+    """Forward an image edit request with priority-based channel failover."""
+    channels = _select_channels(model)
+    if not channels:
+        raise RuntimeError(f"No channels available for model {model!r}")
 
     payload: dict[str, Any] = {
         "model": model,
@@ -620,19 +670,32 @@ async def image_edits(
         if value is not None and key not in payload:
             payload[key] = value
 
-    logger.info(
-        "newapi image_edit proxy: model={} n_images={} url={} channel={}",
-        model, len(images_b64 or []), url, chan.id
-    )
+    last_exc: Exception | None = None
+    for idx, chan in enumerate(channels):
+        url = f"{chan.base_url}/v1/images/edits"
+        logger.info(
+            "newapi image_edit proxy: model={} n_images={} url={} channel={} (priority={}, {}/{})",
+            model, len(images_b64 or []), url, chan.id, chan.priority, idx + 1, len(channels),
+        )
+        try:
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=chan.timeout)
+            ) as session:
+                async with session.post(url, json=payload, headers=_headers(chan.api_key)) as resp:
+                    resp.raise_for_status()
+                    res = await resp.json()
+                    _check_json_error(res)
+                    return await _cache_image_response_if_needed(res, response_format, prompt=prompt, model=model)
+        except Exception as exc:
+            logger.warning(
+                "newapi image_edit channel {} failed (priority={}, {}/{}): {}",
+                chan.id, chan.priority, idx + 1, len(channels), exc,
+            )
+            last_exc = exc
+            # Continue to the next channel
 
-    async with aiohttp.ClientSession(
-        timeout=aiohttp.ClientTimeout(total=chan.timeout)
-    ) as session:
-        async with session.post(url, json=payload, headers=_headers(chan.api_key)) as resp:
-            resp.raise_for_status()
-            res = await resp.json()
-            _check_json_error(res)
-            return await _cache_image_response_if_needed(res, response_format, prompt=prompt, model=model)
+    # All channels exhausted
+    raise last_exc or RuntimeError(f"All channels failed for model {model!r}")
 
 
 async def _resolve_url_to_bytes(url_or_data: str) -> tuple[bytes, str, str]:
