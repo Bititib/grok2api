@@ -219,15 +219,6 @@ video_cost_per_second_720p = 0.03
 [billing.pricing.gpt-image-2]
 per_request = 0.04
 
-[billing.pricing.gpt-image-2-plus]
-per_request = 0.08
-
-[billing.pricing.gpt-image-2-pro]
-per_request = 0.08
-
-[billing.pricing.gpt-image-2-max]
-per_request = 0.12
-
 # Google Image models pricing (2x upstream price)
 [billing.pricing.gemini-3-pro-image-preview]
 per_request = 0.20
