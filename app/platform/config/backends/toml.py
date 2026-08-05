@@ -44,6 +44,19 @@ class TomlConfigBackend(ConfigBackend):
             with open(self._path, "rb") as fh:
                 existing = tomllib.load(fh)
         merged = deep_merge(existing, patch)
+
+        # Recursively remove None values to support key deletion and avoid TOML serialization error
+        def _remove_none(d: Any) -> None:
+            if not isinstance(d, dict):
+                return
+            to_del = [k for k, v in d.items() if v is None]
+            for k in to_del:
+                d.pop(k)
+            for v in d.values():
+                _remove_none(v)
+
+        _remove_none(merged)
+
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._path, "wb") as fh:
             tomli_w.dump(merged, fh)

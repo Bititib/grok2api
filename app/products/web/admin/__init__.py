@@ -198,7 +198,20 @@ async def get_config_endpoint():
 async def update_config(req: ConfigPatchRequest):
     from app.control.account.runtime import reconcile_refresh_runtime
 
-    patch = _sanitize_proxy_config(req.root)
+    # Unflatten flat dotted keys into nested dictionaries (e.g., {"a.b.c": 1} -> {"a": {"b": {"c": 1}}})
+    raw_patch = req.root
+    patch: dict[str, Any] = {}
+    for k, v in raw_patch.items():
+        if "." in k:
+            parts = k.split(".")
+            d = patch
+            for part in parts[:-1]:
+                d = d.setdefault(part, {})
+            d[parts[-1]] = v
+        else:
+            patch[k] = v
+
+    patch = _sanitize_proxy_config(patch)
     _ensure_runtime_patch_allowed(patch)
     cache_local_changed = _patch_touches_prefix(patch, "cache.local")
     await config.update(patch)
