@@ -114,7 +114,8 @@ base_url = "https://api.sudashuiapi.com"
 api_key = "sk-SDeSvy1BIevUNsUWLUFJJiw5xapk1zxP0fAxjgvZZ0sYYpDy"
 timeout = 180
 models = [
-    "ld-sdas-h3-501-2k"
+    "ld-sdas-h3-501-2k",
+    "ld-sdas-cvk-pro-933-720p"
 ]
 enabled = true
 
@@ -168,6 +169,9 @@ per_request = 0.12
 
 [billing.pricing."ld-sdas-h3-501-2k"]
 per_request = 3.50
+
+[billing.pricing."ld-sdas-cvk-pro-933-720p"]
+per_request = 3.70
 
 [billing.pricing."sd2.0-480p"]
 is_video = true

@@ -283,5 +283,8 @@ per_request = 3.00
 [billing.pricing.sora-v3-933-pro]
 per_request = 5.00
 
+[billing.pricing."ld-sdas-cvk-pro-933-720p"]
+per_request = 3.70
+
 
  
