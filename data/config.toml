@@ -171,7 +171,7 @@ per_request = 0.12
 per_request = 3.50
 
 [billing.pricing."ld-sdas-cvk-pro-933-720p"]
-per_request = 3.70
+per_request = 4.70
 
 [billing.pricing."sd2.0-480p"]
 is_video = true
