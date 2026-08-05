@@ -83,17 +83,29 @@ async def list_models(request: Request):
         if _model_available_for_pools(m, pools) and m.model_name not in exclude
     ]
 
-    # Merge NewAPI upstream models if enabled
+    # Merge NewAPI upstream models if enabled and configured
     from app.control.provider.newapi import is_newapi_enabled, list_models as newapi_list
 
     if is_newapi_enabled() and cfg.get_bool("providers.newapi.merge_models", True):
         local_ids = {m["id"] for m in models}
         try:
+            # Extract all models configured with custom pricing
+            pricing_models = set(cfg.raw().get("billing", {}).get("pricing", {}).keys())
+            
+            # Extract all models configured in enabled channels
+            channel_models = set()
+            for chan in cfg.get_list("providers.newapi.channels", []):
+                if isinstance(chan, dict) and chan.get("enabled", True):
+                    for mname in chan.get("models", []):
+                        channel_models.add(str(mname).strip())
+
             upstream = await newapi_list()
             for um in upstream:
                 mid = um.get("id")
                 if mid not in local_ids and mid not in exclude:
-                    models.append(um)
+                    # Only show if the model is explicitly priced OR configured in a channel
+                    if mid in pricing_models or mid in channel_models:
+                        models.append(um)
         except Exception as exc:
             logger.debug("newapi model merge skipped: error={}", exc)
 
