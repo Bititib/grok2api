@@ -67,7 +67,8 @@ models = [
     "sd2-c7",
     "sd2-mini",
     "seedance-2.0-720p",
-    "seedance-2.0-fast-720p"
+    "seedance-2.0-fast-720p",
+    "sd2.5"
 ]
 enabled = true
 
@@ -157,6 +158,9 @@ per_request = 4.00
 
 [billing.pricing.seedance-2.0-fast-720p]
 per_request = 3.00
+
+[billing.pricing."sd2.5"]
+per_request = 2.00
 
 [billing.pricing.tejiasd2]
 per_request = 3.00

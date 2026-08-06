@@ -940,6 +940,7 @@ THIRD_PARTY_VIDEO_MODELS: frozenset[str] = frozenset({
     "sd2-mini",
     "seedance-2.0-720p",
     "seedance-2.0-fast-720p",
+    "sd2.5",
 })
 
 
@@ -948,6 +949,7 @@ def is_third_party_video_model(model: str) -> bool:
     return (
         model in THIRD_PARTY_VIDEO_MODELS
         or model.startswith("sd2-")
+        or model.startswith("sd2.")
         or model.startswith("seedance")
         or model.startswith("sdas-")
         or model.startswith("ld-")

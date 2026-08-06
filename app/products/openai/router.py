@@ -406,20 +406,23 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             body["input_reference"] = urls[0]
         if urls and "images" not in body:
             body["images"] = urls[:9]
-    elif model.startswith("sd2-") or model.startswith("seedance"):
+    elif model.startswith("sd2-") or model.startswith("sd2.") or model.startswith("seedance") or model == "sd2.5":
+        max_imgs = 50 if "2.5" in model else 9
+        max_vids = 10 if "2.5" in model else 3
+        max_auds = 10 if "2.5" in model else 3
         if "image_refs" not in body or not body["image_refs"]:
             if urls:
-                body["image_refs"] = urls[:9]
+                body["image_refs"] = urls[:max_imgs]
         elif isinstance(body["image_refs"], list):
-            body["image_refs"] = [str(u) for u in body["image_refs"] if u][:9]
+            body["image_refs"] = [str(u) for u in body["image_refs"] if u][:max_imgs]
         if "video_refs" in body and isinstance(body["video_refs"], list):
-            body["video_refs"] = [str(v) for v in body["video_refs"] if v][:3]
+            body["video_refs"] = [str(v) for v in body["video_refs"] if v][:max_vids]
         if "audio_refs" in body and isinstance(body["audio_refs"], list):
-            body["audio_refs"] = [str(a) for a in body["audio_refs"] if a][:3]
+            body["audio_refs"] = [str(a) for a in body["audio_refs"] if a][:max_auds]
         if urls and "input_reference" not in body:
             body["input_reference"] = urls[0]
         if urls and "images" not in body:
-            body["images"] = urls[:9]
+            body["images"] = urls[:max_imgs]
     elif model.startswith("sd2.0-") or model.startswith("video-"):
         # Map to newtoken.club format
         img_list = []
