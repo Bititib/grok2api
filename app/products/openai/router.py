@@ -423,6 +423,8 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             body["input_reference"] = urls[0]
         if urls and "images" not in body:
             body["images"] = urls[:max_imgs]
+        if "2.5" in model:
+            body["duration"] = 15
     elif model.startswith("sd2.0-") or model.startswith("video-"):
         # Map to newtoken.club format
         img_list = []
