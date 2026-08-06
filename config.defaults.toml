@@ -289,5 +289,12 @@ per_request = 5.00
 [billing.pricing."ld-sdas-cvk-pro-933-720p"]
 per_request = 4.70
 
+# 分组优惠立减配置 (固定金额立减，单位：美元/元)
+# 示例：vip_05 分组每次请求立减 0.05元 (0.5毛)
+[billing.group_discounts]
+vip_05 = 0.05
 
- 
+# 分组折扣倍率配置 (百分比折扣，1.0 = 原价, 0.8 = 8折, 0.5 = 5折)
+# 示例：vip_8折 分组按原价 8 折计费
+[billing.group_ratios]
+vip = 0.8

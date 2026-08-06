@@ -114,6 +114,7 @@ class BillingService:
             video_seconds=video_seconds,
             video_resolution=video_resolution,
             endpoint=endpoint,
+            group=key_record.group if key_record else "default",
         )
 
         # Deduct / settle

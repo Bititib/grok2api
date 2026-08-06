@@ -148,23 +148,35 @@ def calculate_cost(
     video_seconds: int = 0,
     video_resolution: str = "720p",
     endpoint: str = "",
+    group: str = "default",
 ) -> float:
-    """Calculate the cost of one API call."""
+    """Calculate the cost of one API call, applying group discount/ratio if configured."""
     pricing = get_pricing(model)
 
-    # Per-request models (images or per-request video)
+    # Base cost calculation
     if pricing.per_request > 0:
-        return pricing.per_request
+        base_cost = pricing.per_request
+    elif pricing.is_video or endpoint == "video":
+        base_cost = video_cost(video_seconds, resolution=video_resolution, model=model)
+    else:
+        base_cost = (
+            prompt_tokens * pricing.input / 1_000_000
+            + completion_tokens * pricing.output / 1_000_000
+        )
 
-    # Video models
-    if pricing.is_video or endpoint == "video":
-        return video_cost(video_seconds, resolution=video_resolution, model=model)
+    cfg = get_config()
 
-    # Token-based models
-    cost = (
-        prompt_tokens * pricing.input / 1_000_000
-        + completion_tokens * pricing.output / 1_000_000
-    )
+    # 1. Apply Group Ratio multiplier (e.g. [billing.group_ratios] vip = 0.8)
+    ratio = cfg.get_float(f"billing.group_ratios.{group}", 1.0)
+    if ratio < 0:
+        ratio = 1.0
+    cost = base_cost * ratio
+
+    # 2. Apply Group Fixed Discount (e.g. [billing.group_discounts] vip_05 = 0.05)
+    discount = cfg.get_float(f"billing.group_discounts.{group}", 0.0)
+    if discount > 0:
+        cost = max(0.0, cost - discount)
+
     return round(cost, 8)
 
 
