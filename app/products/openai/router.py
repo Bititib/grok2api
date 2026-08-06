@@ -3,6 +3,8 @@
 import base64
 import binascii
 import mimetypes
+import asyncio
+from dataclasses import dataclass
 from typing import Annotated, Any, AsyncGenerator, AsyncIterable, Literal
 
 import orjson
@@ -34,6 +36,142 @@ _TAG_RESPONSES = "OpenAI - Responses"
 _TAG_IMAGES = "OpenAI - Images"
 _TAG_VIDEOS = "OpenAI - Videos"
 _TAG_FILES = "OpenAI - Files"
+
+
+@dataclass(slots=True)
+class _PendingVideoHold:
+    key_record: Any
+    model: str
+    video_seconds: int
+    video_resolution: str
+    held_amount: float
+    created_at: float
+
+
+_PENDING_VIDEO_HOLDS: dict[str, _PendingVideoHold] = {}
+_PENDING_VIDEO_HOLDS_LOCK = asyncio.Lock()
+
+
+def _is_video_success(res: Any) -> bool:
+    """Check if the video generation task result indicates successful completion."""
+    if not isinstance(res, dict):
+        return False
+    if "error" in res or "err" in res:
+        return False
+
+    status = str(res.get("status") or "").lower()
+    if status in ("completed", "success", "finished"):
+        return True
+
+    nested_data = res.get("data")
+    if isinstance(nested_data, dict):
+        if "error" in nested_data or "err" in nested_data:
+            return False
+        status = str(nested_data.get("status") or "").lower()
+        if status in ("completed", "success", "finished"):
+            return True
+
+    url = (
+        res.get("url")
+        or res.get("video_url")
+        or res.get("result_url")
+        or (nested_data.get("url") if isinstance(nested_data, dict) else None)
+        or (nested_data.get("video_url") if isinstance(nested_data, dict) else None)
+        or (nested_data.get("result_url") if isinstance(nested_data, dict) else None)
+    )
+    if isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("/v1/files/")):
+        return True
+
+    return False
+
+
+async def _process_pending_video_hold(task_id: str, result: dict[str, Any]) -> None:
+    """Check if a pending video hold exists for task_id, and settle or refund billing accordingly."""
+    import time as _time
+    if not task_id:
+        return
+
+    keys_to_check = [str(task_id)]
+    if ":" in str(task_id):
+        keys_to_check.append(str(task_id).split(":", 1)[1])
+
+    hold_entry: _PendingVideoHold | None = None
+    matched_key: str | None = None
+
+    async with _PENDING_VIDEO_HOLDS_LOCK:
+        for k in keys_to_check:
+            if k in _PENDING_VIDEO_HOLDS:
+                hold_entry = _PENDING_VIDEO_HOLDS.pop(k)
+                matched_key = k
+                break
+        if matched_key:
+            for k in list(_PENDING_VIDEO_HOLDS.keys()):
+                if k in keys_to_check:
+                    _PENDING_VIDEO_HOLDS.pop(k, None)
+
+    if hold_entry is None:
+        return
+
+    from app.control.billing.service import get_billing_service
+    svc = get_billing_service()
+    if svc is None:
+        return
+
+    if _is_video_success(result):
+        duration_ms = int((_time.monotonic() - hold_entry.created_at) * 1000)
+        try:
+            await svc.record_usage(
+                hold_entry.key_record,
+                model=hold_entry.model,
+                endpoint="video",
+                video_seconds=hold_entry.video_seconds,
+                video_resolution=hold_entry.video_resolution,
+                request_id=str(task_id),
+                duration_ms=duration_ms,
+                held_amount=hold_entry.held_amount,
+            )
+            logger.info("Video task {} completed successfully, settled billing: ${}", task_id, hold_entry.held_amount)
+        except Exception as exc:
+            logger.warning("Failed to settle billing for completed video task {}: {}", task_id, exc)
+
+    elif _is_video_failed(result):
+        try:
+            await svc.refund_hold(hold_entry.key_record.key, hold_entry.held_amount)
+            logger.info("Video task {} failed, refunded pre-hold: ${}", task_id, hold_entry.held_amount)
+        except Exception as exc:
+            logger.warning("Failed to refund pre-hold for video task {}: {}", task_id, exc)
+    else:
+        # Task still in progress, restore hold entry for future polls
+        async with _PENDING_VIDEO_HOLDS_LOCK:
+            _PENDING_VIDEO_HOLDS[matched_key] = hold_entry
+
+
+async def _cleanup_stale_video_holds(ttl_seconds: float = 1800.0) -> None:
+    """Refund and remove pending video holds that have been unpolled longer than ttl_seconds."""
+    import time as _time
+    now = _time.monotonic()
+    expired: list[tuple[str, _PendingVideoHold]] = []
+
+    async with _PENDING_VIDEO_HOLDS_LOCK:
+        for task_id, hold in list(_PENDING_VIDEO_HOLDS.items()):
+            if now - hold.created_at > ttl_seconds:
+                expired.append((task_id, hold))
+                _PENDING_VIDEO_HOLDS.pop(task_id, None)
+
+    if not expired:
+        return
+
+    from app.control.billing.service import get_billing_service
+    svc = get_billing_service()
+
+    for task_id, hold in expired:
+        logger.info("Video task {} expired after {}s without poll, refunding ${}", task_id, ttl_seconds, hold.held_amount)
+        if svc is not None:
+            try:
+                await svc.refund_hold(hold.key_record.key, hold.held_amount)
+            except Exception as exc:
+                logger.warning("Failed to refund expired video hold {}: {}", task_id, exc)
+
 
 
 async def _available_pools(request: Request) -> frozenset[str]:
@@ -1042,29 +1180,30 @@ async def videos_create(request: Request):
                 status_code=502,
             )
 
-        # Billing
-        if billing_key is not None:
-            from app.control.billing.service import get_billing_service
-            svc = get_billing_service()
-            if svc is not None:
-                duration_ms = int((_time.monotonic() - _start) * 1000)
-                task_id = result.get("id") or result.get("task_id") or ""
-                try:
-                    video_sec = int(seconds)
-                except (ValueError, TypeError):
-                    video_sec = 6
-                asyncio.create_task(
-                    svc.record_usage(
-                        billing_key,
-                        model=model,
-                        endpoint="video",
-                        video_seconds=video_sec,
-                        video_resolution=resolution_name or resolution or "720p",
-                        request_id=str(task_id),
-                        duration_ms=duration_ms,
-                        held_amount=held_amount,
-                    )
-                )
+        # Register pending video hold for settlement upon poll completion
+        task_id = result.get("id") or result.get("task_id") or ""
+        if not task_id and isinstance(result.get("data"), dict):
+            task_id = result.get("data").get("id") or result.get("data").get("task_id") or ""
+
+        if billing_key is not None and held_amount > 0 and task_id:
+            try:
+                video_sec = int(seconds)
+            except (ValueError, TypeError):
+                video_sec = 6
+            res_str = str(resolution_name or resolution or "720p")
+            hold_entry = _PendingVideoHold(
+                key_record=billing_key,
+                model=model,
+                video_seconds=video_sec,
+                video_resolution=res_str,
+                held_amount=held_amount,
+                created_at=_time.monotonic(),
+            )
+            async with _PENDING_VIDEO_HOLDS_LOCK:
+                _PENDING_VIDEO_HOLDS[str(task_id)] = hold_entry
+                if ":" in str(task_id):
+                    _PENDING_VIDEO_HOLDS[str(task_id).split(":", 1)[1]] = hold_entry
+            asyncio.create_task(_cleanup_stale_video_holds())
 
         return JSONResponse(result)
 
@@ -1125,6 +1264,7 @@ async def videos_retrieve(video_id: str, request: Request):
     if is_newapi_enabled():
         try:
             result = await newapi_video_query(video_id)
+            await _process_pending_video_hold(video_id, result)
             billing_key = getattr(request.state, "billing_key", None)
             if billing_key is not None and _is_video_failed(result):
                 from app.control.billing.service import get_billing_service
@@ -1404,15 +1544,12 @@ async def video_generations_create(request: Request):
             status_code=502,
         )
 
-    # Record billing on successful submission
-    if billing_key is not None:
-        from app.control.billing.service import get_billing_service
-        svc = get_billing_service()
-        if svc is not None:
-            duration_ms = int((_time.monotonic() - _start) * 1000)
-            task_id = result.get("task_id") or result.get("id") or ""
-            
-            # Extract actual video details for final billing record
+    # Register pending video hold for settlement upon poll completion
+        task_id = result.get("task_id") or result.get("id") or ""
+        if not task_id and isinstance(result.get("data"), dict):
+            task_id = result.get("data").get("task_id") or result.get("data").get("id") or ""
+
+        if billing_key is not None and held_amount > 0 and task_id:
             duration_val = body.get("duration") or body.get("seconds") or 6
             try:
                 video_sec = int(duration_val)
@@ -1426,18 +1563,19 @@ async def video_generations_create(request: Request):
             else:
                 video_res = "720p"
 
-            asyncio.create_task(
-                svc.record_usage(
-                    billing_key,
-                    model=model,
-                    endpoint="video",
-                    video_seconds=video_sec,
-                    video_resolution=video_res,
-                    request_id=str(task_id),
-                    duration_ms=duration_ms,
-                    held_amount=held_amount,
-                )
+            hold_entry = _PendingVideoHold(
+                key_record=billing_key,
+                model=model,
+                video_seconds=video_sec,
+                video_resolution=video_res,
+                held_amount=held_amount,
+                created_at=_time.monotonic(),
             )
+            async with _PENDING_VIDEO_HOLDS_LOCK:
+                _PENDING_VIDEO_HOLDS[str(task_id)] = hold_entry
+                if ":" in str(task_id):
+                    _PENDING_VIDEO_HOLDS[str(task_id).split(":", 1)[1]] = hold_entry
+            asyncio.create_task(_cleanup_stale_video_holds())
 
     return JSONResponse(result)
 
@@ -1482,6 +1620,7 @@ async def video_generations_poll(task_id: str, request: Request):
 
     try:
         result = await newapi_poll(task_id)
+        await _process_pending_video_hold(task_id, result)
     except Exception as exc:
         logger.exception("newapi video poll failed: task_id={} error={}", task_id, exc)
         return JSONResponse(
@@ -1594,36 +1733,32 @@ async def video_create_endpoint(request: Request):
             status_code=502,
         )
 
-    # Billing
-    if billing_key is not None:
-        from app.control.billing.service import get_billing_service
-        svc = get_billing_service()
-        if svc is not None:
-            duration_ms = int((_time.monotonic() - _start) * 1000)
-            task_id = result.get("id") or result.get("task_id") or ""
-            # Extract seconds and resolution from the request body
-            try:
-                video_sec = int(body.get("seconds", 6))
-            except (ValueError, TypeError):
-                video_sec = 6
-            # Resolution: check size (e.g. "720P"), then fall back to "720p"
-            raw_size = str(body.get("size", "")).strip().lower()
-            if raw_size in ("480p", "sd"):
-                video_res = "480p"
-            else:
-                video_res = "720p"
-            asyncio.create_task(
-                svc.record_usage(
-                    billing_key,
-                    model=model,
-                    endpoint="video",
-                    video_seconds=video_sec,
-                    video_resolution=video_res,
-                    request_id=str(task_id),
-                    duration_ms=duration_ms,
-                    held_amount=held_amount,
-                )
-            )
+    # Register pending video hold for settlement upon poll completion
+    task_id = result.get("id") or result.get("task_id") or ""
+    if not task_id and isinstance(result.get("data"), dict):
+        task_id = result.get("data").get("id") or result.get("data").get("task_id") or ""
+
+    if billing_key is not None and held_amount > 0 and task_id:
+        try:
+            video_sec = int(body.get("seconds", 6))
+        except (ValueError, TypeError):
+            video_sec = 6
+        raw_size = str(body.get("size", "")).strip().lower()
+        video_res = "480p" if raw_size in ("480p", "sd") else "720p"
+
+        hold_entry = _PendingVideoHold(
+            key_record=billing_key,
+            model=model,
+            video_seconds=video_sec,
+            video_resolution=video_res,
+            held_amount=held_amount,
+            created_at=_time.monotonic(),
+        )
+        async with _PENDING_VIDEO_HOLDS_LOCK:
+            _PENDING_VIDEO_HOLDS[str(task_id)] = hold_entry
+            if ":" in str(task_id):
+                _PENDING_VIDEO_HOLDS[str(task_id).split(":", 1)[1]] = hold_entry
+        asyncio.create_task(_cleanup_stale_video_holds())
 
     return JSONResponse(result)
 
@@ -1651,6 +1786,7 @@ async def video_query_endpoint(
 
     try:
         result = await newapi_video_query(id)
+        await _process_pending_video_hold(id, result)
     except Exception as exc:
         logger.exception("newapi video_query failed: id={} error={}", id, exc)
         return JSONResponse(
