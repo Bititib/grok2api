@@ -941,6 +941,7 @@ THIRD_PARTY_VIDEO_MODELS: frozenset[str] = frozenset({
     "seedance-2.0-720p",
     "seedance-2.0-fast-720p",
     "sd2.5",
+    "sd-c6",
 })
 
 

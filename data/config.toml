@@ -68,7 +68,8 @@ models = [
     "sd2-mini",
     "seedance-2.0-720p",
     "seedance-2.0-fast-720p",
-    "sd2.5"
+    "sd2.5",
+    "sd-c6"
 ]
 enabled = true
 
@@ -115,7 +116,7 @@ base_url = "https://api.sudashuiapi.com"
 api_key = "sk-SDeSvy1BIevUNsUWLUFJJiw5xapk1zxP0fAxjgvZZ0sYYpDy"
 timeout = 180
 models = [
-    "ld-sdas-h3-501-2k",
+    "sdas-xh-minimax-h3-2k",
     "ld-sdas-cvk-pro-933-720p"
 ]
 enabled = true
@@ -160,7 +161,10 @@ per_request = 4.00
 per_request = 3.00
 
 [billing.pricing."sd2.5"]
-per_request = 5.00
+per_request = 2.00
+
+[billing.pricing."sd-c6"]
+per_request = 1.50
 
 [billing.pricing.tejiasd2]
 per_request = 3.00
@@ -171,11 +175,11 @@ per_request = 5.00
 [billing.pricing.gpt-image-2]
 per_request = 0.12
 
-[billing.pricing."ld-sdas-h3-501-2k"]
-per_request = 3.50
+[billing.pricing."sdas-xh-minimax-h3-2k"]
+per_request = 3.00
 
 [billing.pricing."ld-sdas-cvk-pro-933-720p"]
-per_request = 4.70
+per_request = 4.00
 
 [billing.pricing."sd2.0-480p"]
 is_video = true

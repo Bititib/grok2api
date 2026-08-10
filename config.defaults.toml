@@ -278,7 +278,10 @@ per_request = 4.00
 per_request = 3.00
 
 [billing.pricing."sd2.5"]
-per_request = 5.00
+per_request = 2.00
+
+[billing.pricing."sd-c6"]
+per_request = 1.50
 
 [billing.pricing.tejiasd2]
 per_request = 3.00
@@ -286,8 +289,11 @@ per_request = 3.00
 [billing.pricing.sora-v3-933-pro]
 per_request = 5.00
 
+[billing.pricing."sdas-xh-minimax-h3-2k"]
+per_request = 3.00
+
 [billing.pricing."ld-sdas-cvk-pro-933-720p"]
-per_request = 4.70
+per_request = 4.00
 
 # 分组优惠立减配置 (固定金额立减，单位：美元/元)
 # 示例：vip_05 分组每次请求立减 0.05元 (0.5毛)

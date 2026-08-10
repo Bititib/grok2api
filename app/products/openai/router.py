@@ -544,7 +544,7 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             body["input_reference"] = urls[0]
         if urls and "images" not in body:
             body["images"] = urls[:9]
-    elif model.startswith("sd2-") or model.startswith("sd2.") or model.startswith("seedance") or model == "sd2.5":
+    elif model.startswith("sd2-") or model.startswith("sd2.") or model.startswith("seedance") or model == "sd2.5" or model == "sd-c6" or model.startswith("ld-") or model.startswith("sdas-"):
         max_imgs = 50 if "2.5" in model else 9
         max_vids = 10 if "2.5" in model else 3
         max_auds = 10 if "2.5" in model else 3
@@ -561,8 +561,11 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             body["input_reference"] = urls[0]
         if urls and "images" not in body:
             body["images"] = urls[:max_imgs]
-        if "2.5" in model:
+        if "2.5" in model or model == "sd-c6":
+            body["duration"] = 10
+        elif "h3" in model:
             body["duration"] = 15
+
     elif model.startswith("sd2.0-") or model.startswith("video-"):
         # Map to newtoken.club format
         img_list = []
