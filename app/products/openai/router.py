@@ -526,14 +526,6 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             if len(urls) > 1 and not body.get("reference_image_urls") and not body.get("reference_images"):
                 body["reference_image_urls"] = urls[1:]
 
-    elif model == "grok-imagine-video-1.5-preview":
-        if urls:
-            body["images"] = [urls[0]]
-        else:
-            body["images"] = []
-        body.pop("input_reference", None)
-        body.pop("input_references", None)
-        body.pop("reference_images", None)
     elif model == "sd2-c7":
         if "image_refs" not in body or not body["image_refs"]:
             if urls:
@@ -545,9 +537,12 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
         if urls and "images" not in body:
             body["images"] = urls[:9]
     elif model.startswith("sd2-") or model.startswith("sd2.") or model.startswith("seedance") or model == "sd2.5" or model == "sd-c6" or model.startswith("ld-") or model.startswith("sdas-"):
+        if model == "sd2.5":
+            body.pop("video_refs", None)
+            body.pop("audio_refs", None)
         max_imgs = 50 if "2.5" in model else 9
-        max_vids = 10 if "2.5" in model else 3
-        max_auds = 10 if "2.5" in model else 3
+        max_vids = 0 if model == "sd2.5" else (10 if "2.5" in model else 3)
+        max_auds = 0 if model == "sd2.5" else (10 if "2.5" in model else 3)
         if "image_refs" not in body or not body["image_refs"]:
             if urls:
                 body["image_refs"] = urls[:max_imgs]
@@ -561,7 +556,9 @@ def _standardize_newapi_video_body(body: dict[str, Any], urls: list[str]) -> Non
             body["input_reference"] = urls[0]
         if urls and "images" not in body:
             body["images"] = urls[:max_imgs]
-        if "2.5" in model or model == "sd-c6":
+        if model == "sd2.5":
+            body["duration"] = 30
+        elif "2.5" in model or model == "sd-c6":
             body["duration"] = 10
         elif "h3" in model:
             body["duration"] = 15

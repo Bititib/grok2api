@@ -278,7 +278,7 @@ per_request = 4.00
 per_request = 3.00
 
 [billing.pricing."sd2.5"]
-per_request = 2.00
+per_request = 5.00
 
 [billing.pricing."sd-c6"]
 per_request = 1.50

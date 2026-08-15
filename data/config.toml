@@ -53,7 +53,8 @@ api_key = "sk-ZX7XMT6oABvHIGwFvKm6BF5BdWMsPRo2ZpXO034PtOhHJR2j"
 timeout = 120
 models = [
     "grok-imagine-1.0-video",
-    "grok-imagine-video-1.5-fast"
+    "grok-imagine-video-1.5-fast",
+    "grok-imagine-video-1.5-preview"
 ]
 enabled = true
 
@@ -95,7 +96,7 @@ priority = 0
 models = [
     "gpt-image-2"
 ]
-enabled = true
+enabled = false
 
 [[providers.newapi.channels]]
 id = "pidoi_image"
@@ -143,10 +144,10 @@ per_request = 0.85
 per_request = 0.40
 
 [billing.pricing.grok-imagine-video-1.5-fast]
-per_request = 0.40
+per_request = 0.50
 
 [billing.pricing.grok-imagine-video-1.5-preview]
-per_request = 0.50
+per_request = 0.60
 
 [billing.pricing.sd2-c7]
 per_request = 1.50
@@ -161,7 +162,7 @@ per_request = 4.00
 per_request = 3.00
 
 [billing.pricing."sd2.5"]
-per_request = 2.00
+per_request = 5.00
 
 [billing.pricing."sd-c6"]
 per_request = 1.50
